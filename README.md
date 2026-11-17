@@ -113,6 +113,7 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
 | Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11, Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests) |
+| Code coverage | JaCoCo 0.8.14 |
 
 > Networking, image loading and navigation libraries will be listed here once they are added.
 
@@ -251,6 +252,11 @@ Screenshot tests (**Paparazzi**) cover how screens look. They render the statele
 - Each test calls the generic `Paparazzi.snapshotLightAndDark { ... }` helper (`utils/PaparazziTestUtils.kt`). It takes two named snapshots (`light`, `dark`) of any composable in the app theme with `dynamicColor = false`, so tests only describe what to render and the result does not depend on the wallpaper or API level.
 - Golden images live in `app/src/test/snapshots/images/` and are committed. After an intended UI change, record them again and review the PNG diff.
 
+Code coverage is measured with **JaCoCo**. The `jacocoTestReport` task (`app/build.gradle.kts`) runs the debug unit tests (including the Paparazzi tests) and writes an HTML and XML report to `app/build/reports/jacoco/jacocoTestReport/`:
+
+- Generated code is excluded, so the number reflects hand-written code only: `R`, `BuildConfig`, `Manifest`, Hilt/Dagger output (`Hilt_*`, `*_Factory`, `*_MembersInjector`, `*_HiltModules`, `hilt_aggregated_deps`, ...), Compose `ComposableSingletons` and lambdas, previews and Kotlin `$WhenMappings`.
+- Coverage from UI tests (`androidTest`) is merged into the same report when it exists. The task does not run them itself, because they need a device, so run `connectedDebugAndroidTest` first.
+
 ```bash
 # Local unit tests (JVM)
 ./gradlew test
@@ -263,6 +269,12 @@ Screenshot tests (**Paparazzi**) cover how screens look. They render the statele
 
 # Instrumented and UI tests (needs a connected device or emulator)
 ./gradlew connectedAndroidTest
+
+# Coverage report for unit and screenshot tests
+./gradlew jacocoTestReport
+
+# Coverage report that also includes UI tests (needs a connected device or emulator)
+./gradlew connectedDebugAndroidTest jacocoTestReport
 
 # Android Lint
 ./gradlew lint
@@ -286,6 +298,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 8 | UI tests check **interaction → event** on the stateless `XxxScreen` with a recording `onEvent` lambda | Keeps UI tests independent of the ViewModel (already covered by unit tests) and of Hilt. The look of the UI is left to screenshot tests. |
 | 9 | UI elements get **test tags** (`XxxScreenTestTags`) and UI tests find nodes by tag | Stable against copy and localisation changes and against new elements of the same type. The tests do not depend on how the UI looks. |
 | 10 | **Paparazzi** for screenshot tests, version `2.0.0-alpha05.1` | Runs on the JVM with no emulator, so it is fast and CI-friendly. The 2.0 alpha line is the only one that supports AGP 9. Light/dark and `dynamicColor = false` are handled once in a test util (`snapshotLightAndDark`), so there is one test per UI state and snapshots are deterministic. |
+| 11 | **JaCoCo** with one custom `jacocoTestReport` task and a standard Android exclude list | The plain JaCoCo setup works with AGP 9 without extra plugins. Excluding generated code (R, Hilt/Dagger, Compose singletons) keeps the coverage number meaningful. UI test coverage is merged when available, but the task does not require a device. |
 
 ---
 
@@ -307,6 +320,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Unit test setup: `DispatcherProvider`, `MainDispatcherRule` and the `SearchViewModel` tests
 - UI tests: `SearchScreenTest`, which checks that user interactions send the right `SearchEvent`s
 - Screenshot tests: Paparazzi setup, the `snapshotLightAndDark` helper and `SearchScreenScreenshotTest`
+- Code coverage: JaCoCo setup with the `jacocoTestReport` task and the exclude list for generated code
 
 ### How it is used
 

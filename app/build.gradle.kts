@@ -4,6 +4,11 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     alias(libs.plugins.paparazzi)
+    jacoco
+}
+
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
 }
 
 android {
@@ -23,6 +28,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            enableUnitTestCoverage = true
+            enableAndroidTestCoverage = true
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -38,6 +47,75 @@ android {
     buildFeatures {
         compose = true
     }
+}
+
+tasks.withType<Test>().configureEach {
+    configure<JacocoTaskExtension> {
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
+}
+
+val jacocoExcludes = listOf(
+    // Android
+    "**/R.class",
+    "**/R$*.class",
+    "**/BuildConfig.*",
+    "**/Manifest*.*",
+    "**/*Test*.*",
+    "android/**/*.*",
+    // Hilt / Dagger
+    "**/*_Factory*.*",
+    "**/*_MembersInjector*.*",
+    "**/*_Provide*Factory*.*",
+    "**/Hilt_*.*",
+    "**/*_HiltModules*.*",
+    "**/*_ComponentTreeDeps*.*",
+    "**/*_GeneratedInjector*.*",
+    "**/*_HiltComponents*.*",
+    "**/Dagger*Component*.*",
+    "**/dagger/**",
+    "**/hilt_aggregated_deps/**",
+    // Compose
+    "**/*ComposableSingletons*.*",
+    "**/*\$lambda$*.*",
+    "**/*Preview*.*",
+    // Kotlin
+    "**/*\$WhenMappings.*",
+    "**/*\$serializer.*",
+)
+
+tasks.register<JacocoReport>("jacocoTestReport") {
+    group = "verification"
+    description = "Generates a JaCoCo coverage report for debug unit tests (and UI tests, if they were run)."
+    dependsOn("testDebugUnitTest")
+
+    reports {
+        html.required = true
+        xml.required = true
+        csv.required = false
+    }
+
+    val buildDir = layout.buildDirectory
+    classDirectories.setFrom(
+        buildDir.dir("intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes").map {
+            fileTree(it) { exclude(jacocoExcludes) }
+        },
+        buildDir.dir("intermediates/javac/debug/compileDebugJavaWithJavac/classes").map {
+            fileTree(it) { exclude(jacocoExcludes) }
+        },
+    )
+    sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
+    executionData.setFrom(
+        buildDir.map {
+            fileTree(it) {
+                include(
+                    "outputs/unit_test_code_coverage/debugUnitTest/*.exec",
+                    "outputs/code_coverage/debugAndroidTest/connected/**/*.ec",
+                )
+            }
+        },
+    )
 }
 
 dependencies {
