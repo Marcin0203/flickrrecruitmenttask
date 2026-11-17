@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
@@ -25,6 +26,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.marcin.malocha.flickrrecruitmenttask.R
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
+
+object SearchScreenTestTags {
+    const val QUERY_FIELD = "search_query_field"
+    const val SEARCH_BUTTON = "search_button"
+}
 
 @Composable
 fun SearchRoute(
@@ -67,7 +73,9 @@ fun SearchScreen(
             OutlinedTextField(
                 value = state.query,
                 onValueChange = { onEvent(SearchEvent.QueryChanged(it)) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(SearchScreenTestTags.QUERY_FIELD),
                 label = { Text(stringResource(R.string.search_tags_label)) },
                 placeholder = { Text(stringResource(R.string.search_tags_placeholder)) },
                 singleLine = true,
@@ -77,7 +85,9 @@ fun SearchScreen(
             Button(
                 onClick = { onEvent(SearchEvent.SearchClicked) },
                 enabled = state.isSearchEnabled,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(SearchScreenTestTags.SEARCH_BUTTON),
             ) {
                 Text(stringResource(R.string.search_button))
             }

@@ -184,6 +184,8 @@ FlickrRecruitmentTask/
 │       │       ├── utils/                   # Test helpers (collectToList)
 │       │       └── presentation/search/     # SearchViewModelTest
 │       └── androidTest/                     # Instrumented tests (device/emulator)
+│           └── java/.../flickrrecruitmenttask/
+│               └── presentation/search/     # SearchScreenTest (UI → event)
 ├── gradle/
 │   ├── libs.versions.toml                   # Dependency version catalog
 │   └── wrapper/                             # Gradle wrapper
@@ -236,6 +238,12 @@ Unit tests cover the ViewModels. They use:
 - **Google Truth** for assertions and **MockK** for mocking dependencies.
 - State is checked through `state.value`. One-off actions are collected into a list with the `collectToList(flow)` helper (`utils/FlowTestUtils.kt`), which runs in `backgroundScope`.
 
+UI tests (`androidTest`, Compose UI Test) check that **user interactions send the right events**. They do not check how the screen looks:
+
+- They test the stateless `XxxScreen`, not the `XxxRoute`. The test passes a fixed `state` and an `onEvent` lambda that records events into a list, so neither Hilt nor a ViewModel is needed.
+- Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the recorded events with Truth.
+- Visual appearance will be covered later by screenshot tests.
+
 ```bash
 # Local unit tests (JVM)
 ./gradlew test
@@ -262,6 +270,8 @@ Key technical decisions and their reasoning, in the order they were made.
 | 5 | `UiState` is a **data class**, not a sealed class | Fields such as the query and the results live side by side and are updated with `copy()`, without being lost when switching states |
 | 6 | `compileSdk` raised to 37 (`targetSdk` stays 36) | Current AndroidX libraries (`core` 1.19, `lifecycle` 2.11, `androidx.hilt` 1.4) need to compile against API 37 |
 | 7 | Coroutine dispatchers injected through **`DispatcherProvider`** | Tests can swap in test dispatchers and control time. The test implementations live in `src/test`, so the app does not depend on `kotlinx-coroutines-test`. |
+| 8 | UI tests check **interaction → event** on the stateless `XxxScreen` with a recording `onEvent` lambda | Keeps UI tests independent of the ViewModel (already covered by unit tests) and of Hilt. The look of the UI is left to screenshot tests. |
+| 9 | UI elements get **test tags** (`XxxScreenTestTags`) and UI tests find nodes by tag | Stable against copy and localisation changes and against new elements of the same type. The tests do not depend on how the UI looks. |
 
 ---
 
@@ -281,6 +291,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - This README: its structure, the Flickr API documentation and the project overview
 - Architecture setup: Hilt and KSP configuration, the MVI base class and the tag search screen
 - Unit test setup: `DispatcherProvider`, `MainDispatcherRule` and the `SearchViewModel` tests
+- UI tests: `SearchScreenTest`, which checks that user interactions send the right `SearchEvent`s
 
 ### How it is used
 
