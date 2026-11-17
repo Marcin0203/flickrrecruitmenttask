@@ -33,9 +33,10 @@ class SearchScreenTest {
 
     @Before
     fun setUp() {
+        val viewModel = SearchViewModel(DefaultDispatchers())
         composeTestRule.setContent {
             FlickrRecruitmentTaskTheme {
-                SearchScreen(viewModel = SearchViewModel(DefaultDispatchers()))
+                SearchScreen(viewModel = viewModel)
             }
         }
     }
