@@ -155,8 +155,10 @@ Every screen has a **contract** with three types:
 
 Each screen is split into:
 
-- **`XxxRoute`**: stateful. It gets the ViewModel through `hiltViewModel()`, collects state with `collectAsStateWithLifecycle()` and handles actions in a `LaunchedEffect`.
-- **`XxxScreen`**: stateless. It takes `state` and `onEvent` only, so it is easy to preview and test.
+- **`XxxScreen`**: public and stateful. It gets the ViewModel through `hiltViewModel()`, collects state with `collectAsStateWithLifecycle()` and handles actions in a `LaunchedEffect`.
+- **`XxxScreenLayout`**: `internal` and stateless. It takes `state` and `onEvent` only, so previews and screenshot tests can render any state without a ViewModel.
+
+The `Route` suffix is kept for navigation and is not used for screens.
 
 ---
 
@@ -240,13 +242,13 @@ Unit tests cover the ViewModels. They use:
 - **Google Truth** for assertions and **MockK** for mocking dependencies.
 - State is checked through `state.value`. One-off actions are collected into a list with the `collectToList(flow)` helper (`utils/FlowTestUtils.kt`), which runs in `backgroundScope`.
 
-UI tests (`androidTest`, Compose UI Test) check that **user interactions send the right events**. They do not check how the screen looks:
+UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**: state flowing from the ViewModel to the UI and handling of one-off actions. They do not check how the screen looks:
 
-- They test the stateless `XxxScreen`, not the `XxxRoute`. The test passes a fixed `state` and an `onEvent` lambda that records events into a list, so neither Hilt nor a ViewModel is needed.
-- Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the recorded events with Truth.
+- There is one `XxxScreenTest` per screen. It renders the public `XxxScreen` with a real ViewModel created by hand (`SearchViewModel(DefaultDispatchers())`), so Hilt is not needed in tests.
+- Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the result in the UI, for example the button is enabled or the field lost focus after a search (the keyboard is hidden).
 - Visual appearance is covered by screenshot tests (below).
 
-Screenshot tests (**Paparazzi**) cover how screens look. They render the stateless `XxxScreen` on the JVM with layoutlib, so they need no device or emulator:
+Screenshot tests (**Paparazzi**) cover how screens look. They render the stateless `XxxScreenLayout` on the JVM with layoutlib, so they need no device or emulator:
 
 - `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query) on a `PIXEL_5` device config.
 - Each test calls the generic `Paparazzi.snapshotLightAndDark { ... }` helper (`utils/PaparazziTestUtils.kt`). It takes two named snapshots (`light`, `dark`) of any composable in the app theme with `dynamicColor = false`, so tests only describe what to render and the result does not depend on the wallpaper or API level.
@@ -301,10 +303,11 @@ Key technical decisions and their reasoning, in the order they were made.
 | 5 | `UiState` is a **data class**, not a sealed class | Fields such as the query and the results live side by side and are updated with `copy()`, without being lost when switching states |
 | 6 | `compileSdk` raised to 37 (`targetSdk` stays 36) | Current AndroidX libraries (`core` 1.19, `lifecycle` 2.11, `androidx.hilt` 1.4) need to compile against API 37 |
 | 7 | Coroutine dispatchers injected through **`DispatcherProvider`** | Tests can swap in test dispatchers and control time. The test implementations live in `src/test`, so the app does not depend on `kotlinx-coroutines-test`. |
-| 8 | UI tests check **interaction → event** on the stateless `XxxScreen` with a recording `onEvent` lambda | Keeps UI tests independent of the ViewModel (already covered by unit tests) and of Hilt. The look of the UI is left to screenshot tests. |
+| 8 | ~~UI tests check **interaction → event** on the stateless screen with a recording `onEvent` lambda~~ (replaced by #12) | Kept UI tests independent of the ViewModel and of Hilt, but left the stateful part of the screen (state collection, action handling) untested. |
 | 9 | UI elements get **test tags** (`XxxScreenTestTags`) and UI tests find nodes by tag | Stable against copy and localisation changes and against new elements of the same type. The tests do not depend on how the UI looks. |
 | 10 | **Paparazzi** for screenshot tests, version `2.0.0-alpha05.1` | Runs on the JVM with no emulator, so it is fast and CI-friendly. The 2.0 alpha line is the only one that supports AGP 9. Light/dark and `dynamicColor = false` are handled once in a test util (`snapshotLightAndDark`), so there is one test per UI state and snapshots are deterministic. |
 | 11 | **JaCoCo** with two custom tasks (`jacocoTestReport`, `jacocoFullTestReport`) and an exclude list | The plain JaCoCo setup works with AGP 9 without extra plugins. One task works without a device, the other merges UI test coverage. Excluding generated code, entry points, DI wiring and previews keeps the coverage number meaningful. Previews are excluded with an annotation, so they can stay next to their screen. |
+| 12 | Screens are split into a public stateful **`XxxScreen`** and an `internal` stateless **`XxxScreenLayout`**; UI tests cover the whole `XxxScreen` with a real ViewModel | The screen is one unit, so one test file checks it end to end, including hiding the keyboard. `Route` is kept for navigation. The layout is `internal`, not `private`, so screenshot tests can render any state without a ViewModel. |
 
 ---
 
@@ -324,7 +327,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - This README: its structure, the Flickr API documentation and the project overview
 - Architecture setup: Hilt and KSP configuration, the MVI base class and the tag search screen
 - Unit test setup: `DispatcherProvider`, `MainDispatcherRule` and the `SearchViewModel` tests
-- UI tests: `SearchScreenTest`, which checks that user interactions send the right `SearchEvent`s
+- UI tests: `SearchScreenTest`, which checks the whole screen with a real `SearchViewModel` (state updates and hiding the keyboard after a search)
 - Screenshot tests: Paparazzi setup, the `snapshotLightAndDark` helper and `SearchScreenScreenshotTest`
 - Code coverage: JaCoCo setup with the `jacocoTestReport` and `jacocoFullTestReport` tasks, the exclude list and the `@ExcludeFromJacocoGeneratedReport` annotation for previews
 

@@ -7,7 +7,7 @@ import org.junit.Test
 import pl.marcin.malocha.flickrrecruitmenttask.utils.snapshotLightAndDark
 
 /**
- * Paparazzi screenshot tests for [SearchScreen].
+ * Paparazzi screenshot tests for [SearchScreen], rendered through the stateless [SearchScreenLayout].
  *
  * Record goldens with `./gradlew recordPaparazziDebug`, verify with `./gradlew verifyPaparazziDebug`.
  */
@@ -18,11 +18,11 @@ class SearchScreenScreenshotTest {
 
     @Test
     fun screenshotTest_EmptyQuery() = paparazzi.snapshotLightAndDark {
-        SearchScreen(state = SearchUiState(query = ""), onEvent = {})
+        SearchScreenLayout(state = SearchUiState(query = ""), onEvent = {})
     }
 
     @Test
     fun screenshotTest_FilledQuery() = paparazzi.snapshotLightAndDark {
-        SearchScreen(state = SearchUiState(query = "cat, dog"), onEvent = {})
+        SearchScreenLayout(state = SearchUiState(query = "cat, dog"), onEvent = {})
     }
 }

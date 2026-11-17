@@ -34,7 +34,7 @@ object SearchScreenTestTags {
 }
 
 @Composable
-fun SearchRoute(
+fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -52,14 +52,14 @@ fun SearchRoute(
         }
     }
 
-    SearchScreen(
+    SearchScreenLayout(
         state = state,
         onEvent = viewModel::onEvent,
     )
 }
 
 @Composable
-fun SearchScreen(
+internal fun SearchScreenLayout(
     state: SearchUiState,
     onEvent: (SearchEvent) -> Unit,
     modifier: Modifier = Modifier,
@@ -101,7 +101,7 @@ fun SearchScreen(
 @Composable
 private fun SearchScreenPreview() {
     FlickrRecruitmentTaskTheme {
-        SearchScreen(
+        SearchScreenLayout(
             state = SearchUiState(query = "cat, dog"),
             onEvent = {},
         )
