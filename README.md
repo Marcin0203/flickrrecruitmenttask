@@ -112,7 +112,7 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
-| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11, Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test |
+| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11, Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests) |
 
 > Networking, image loading and navigation libraries will be listed here once they are added.
 
@@ -178,11 +178,12 @@ FlickrRecruitmentTask/
 │       │   │       └── theme/               # Material 3 theme (Color, Theme, Type)
 │       │   └── res/                         # Resources (icons, strings, themes)
 │       ├── test/                            # Local unit tests (JVM)
-│       │   └── java/.../flickrrecruitmenttask/
-│       │       ├── di/providers/            # Test DispatcherProvider implementations
-│       │       ├── rules/                   # MainDispatcherRule
-│       │       ├── utils/                   # Test helpers (collectToList)
-│       │       └── presentation/search/     # SearchViewModelTest
+│       │   ├── java/.../flickrrecruitmenttask/
+│       │   │   ├── di/providers/            # Test DispatcherProvider implementations
+│       │   │   ├── rules/                   # MainDispatcherRule
+│       │   │   ├── utils/                   # Test helpers (collectToList, snapshotLightAndDark)
+│       │   │   └── presentation/search/     # SearchViewModelTest, SearchScreenScreenshotTest
+│       │   └── snapshots/images/            # Paparazzi golden PNGs
 │       └── androidTest/                     # Instrumented tests (device/emulator)
 │           └── java/.../flickrrecruitmenttask/
 │               └── presentation/search/     # SearchScreenTest (UI → event)
@@ -242,11 +243,23 @@ UI tests (`androidTest`, Compose UI Test) check that **user interactions send th
 
 - They test the stateless `XxxScreen`, not the `XxxRoute`. The test passes a fixed `state` and an `onEvent` lambda that records events into a list, so neither Hilt nor a ViewModel is needed.
 - Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the recorded events with Truth.
-- Visual appearance will be covered later by screenshot tests.
+- Visual appearance is covered by screenshot tests (below).
+
+Screenshot tests (**Paparazzi**) cover how screens look. They render the stateless `XxxScreen` on the JVM with layoutlib, so they need no device or emulator:
+
+- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query) on a `PIXEL_5` device config.
+- Each test calls the generic `Paparazzi.snapshotLightAndDark { ... }` helper (`utils/PaparazziTestUtils.kt`). It takes two named snapshots (`light`, `dark`) of any composable in the app theme with `dynamicColor = false`, so tests only describe what to render and the result does not depend on the wallpaper or API level.
+- Golden images live in `app/src/test/snapshots/images/` and are committed. After an intended UI change, record them again and review the PNG diff.
 
 ```bash
 # Local unit tests (JVM)
 ./gradlew test
+
+# Record screenshot goldens (after an intended UI change)
+./gradlew recordPaparazziDebug
+
+# Compare screenshots against the goldens
+./gradlew verifyPaparazziDebug
 
 # Instrumented and UI tests (needs a connected device or emulator)
 ./gradlew connectedAndroidTest
@@ -272,6 +285,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 7 | Coroutine dispatchers injected through **`DispatcherProvider`** | Tests can swap in test dispatchers and control time. The test implementations live in `src/test`, so the app does not depend on `kotlinx-coroutines-test`. |
 | 8 | UI tests check **interaction → event** on the stateless `XxxScreen` with a recording `onEvent` lambda | Keeps UI tests independent of the ViewModel (already covered by unit tests) and of Hilt. The look of the UI is left to screenshot tests. |
 | 9 | UI elements get **test tags** (`XxxScreenTestTags`) and UI tests find nodes by tag | Stable against copy and localisation changes and against new elements of the same type. The tests do not depend on how the UI looks. |
+| 10 | **Paparazzi** for screenshot tests, version `2.0.0-alpha05.1` | Runs on the JVM with no emulator, so it is fast and CI-friendly. The 2.0 alpha line is the only one that supports AGP 9. Light/dark and `dynamicColor = false` are handled once in a test util (`snapshotLightAndDark`), so there is one test per UI state and snapshots are deterministic. |
 
 ---
 
@@ -292,6 +306,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Architecture setup: Hilt and KSP configuration, the MVI base class and the tag search screen
 - Unit test setup: `DispatcherProvider`, `MainDispatcherRule` and the `SearchViewModel` tests
 - UI tests: `SearchScreenTest`, which checks that user interactions send the right `SearchEvent`s
+- Screenshot tests: Paparazzi setup, the `snapshotLightAndDark` helper and `SearchScreenScreenshotTest`
 
 ### How it is used
 
