@@ -35,7 +35,7 @@ Build a simple Android application that uses Flickr's publicly accessible [photo
 
 | # | Requirement | Status |
 |---|-------------|:------:|
-| 1 | The user can enter one or more **tags** to search for | ⬜ |
+| 1 | The user can enter one or more **tags** to search for | 🚧 (input UI) |
 | 2 | Matching images are shown in a **list or grid** | ⬜ |
 | 3 | Each list item shows the **title** of its image | ⬜ |
 | 4 | Tapping an image opens it in a **full-screen view** | ⬜ |
@@ -107,18 +107,51 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 |------|------------|
 | Language | Kotlin 2.2.10 |
 | UI | Jetpack Compose (BOM 2026.02.01), Material 3 |
+| Architecture | MVI on `StateFlow` / `SharedFlow`, AndroidX ViewModel, Lifecycle Compose 2.11.0 (`collectAsStateWithLifecycle`) |
+| Dependency injection | Hilt 2.60.1 (KSP 2.3.12), `androidx.hilt` 1.4.0 (`hiltViewModel()`) |
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
-| SDK | `compileSdk` 36.1, `targetSdk` 36, `minSdk` 24 |
+| SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
 | Testing | JUnit 4, AndroidX Test, Espresso, Compose UI Test |
 
-> Networking, image loading, dependency injection and navigation libraries will be listed here once they are added.
+> Networking, image loading and navigation libraries will be listed here once they are added.
 
 ---
 
 ## Architecture
 
-> 🚧 This section will describe the architecture (layers, data flow, state management) as it is implemented.
+The app follows **Clean Architecture** with layers kept as packages in the single `:app` module:
+
+| Layer | Package | Responsibility |
+|-------|---------|----------------|
+| Presentation | `presentation/` | Compose screens, ViewModels, MVI contracts, theme |
+| Domain | `domain/` | Use cases, models and repository interfaces (pure Kotlin) |
+| Data | `data/` | Repository implementations, network |
+| DI | `di/` | Hilt modules that bind the layers together |
+
+> Only the presentation layer exists so far. The `domain`, `data` and `di` packages are created once they get their first code (photo search).
+
+### MVI
+
+Every screen has a **contract** with three types:
+
+- **`UiState`**: a `data class` that holds the whole screen state. Derived values (for example `isSearchEnabled`) are computed properties.
+- **`Event`**: a `sealed interface` of user actions. Events are the only thing the view sends to the ViewModel.
+- **`Action`**: a `sealed interface` of one-off messages for the view (for example hiding the keyboard).
+
+```
+ View ──Event──▶ ViewModel.onEvent()
+  ▲                    │
+  │◀── StateFlow<UiState> (always the latest state)
+  │◀── SharedFlow<Action> (one-off, no replay)
+```
+
+`BaseViewModel<S, E, A>` (`presentation/base`) is the base class. It exposes `state` and `actions` and offers `setState { copy(...) }` and `sendAction(...)` to subclasses.
+
+Each screen is split into:
+
+- **`XxxRoute`**: stateful. It gets the ViewModel through `hiltViewModel()`, collects state with `collectAsStateWithLifecycle()` and handles actions in a `LaunchedEffect`.
+- **`XxxScreen`**: stateless. It takes `state` and `onEvent` only, so it is easy to preview and test.
 
 ---
 
@@ -132,8 +165,12 @@ FlickrRecruitmentTask/
 │       ├── main/
 │       │   ├── AndroidManifest.xml
 │       │   ├── java/pl/marcin/malocha/flickrrecruitmenttask/
-│       │   │   ├── MainActivity.kt          # Entry point (Compose host)
-│       │   │   └── ui/theme/                # Material 3 theme (Color, Theme, Type)
+│       │   │   ├── FlickrApp.kt             # @HiltAndroidApp Application
+│       │   │   ├── MainActivity.kt          # @AndroidEntryPoint, Compose host
+│       │   │   └── presentation/
+│       │   │       ├── base/                # BaseViewModel (MVI base class)
+│       │   │       ├── search/              # Tag search: contract, ViewModel, screen
+│       │   │       └── theme/               # Material 3 theme (Color, Theme, Type)
 │       │   └── res/                         # Resources (icons, strings, themes)
 │       ├── test/                            # Local unit tests (JVM)
 │       └── androidTest/                     # Instrumented tests (device/emulator)
@@ -202,6 +239,11 @@ Key technical decisions and their reasoning, in the order they were made.
 | # | Decision | Rationale |
 |---|----------|-----------|
 | 1 | Project bootstrapped from the Android Studio *Empty Activity (Compose)* template | Up-to-date Gradle / AGP / Compose setup with a version catalog |
+| 2 | Clean Architecture layers as **packages** in `:app`, not separate Gradle modules | The app is small. Packages keep the layer boundaries clear without extra Gradle setup. |
+| 3 | **Hilt** for dependency injection | Compile-time checked graph, the standard Android DI with first-class ViewModel support |
+| 4 | **MVI** with `StateFlow` for state and `SharedFlow` for actions; the view sends only events | One-way data flow, a single source of truth for the screen, and one-off actions that are not replayed after configuration changes |
+| 5 | `UiState` is a **data class**, not a sealed class | Fields such as the query and the results live side by side and are updated with `copy()`, without being lost when switching states |
+| 6 | `compileSdk` raised to 37 (`targetSdk` stays 36) | Current AndroidX libraries (`core` 1.19, `lifecycle` 2.11, `androidx.hilt` 1.4) need to compile against API 37 |
 
 ---
 
@@ -219,6 +261,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 
 - Git repository setup: `.gitignore`, `.gitattributes` and remote configuration
 - This README: its structure, the Flickr API documentation and the project overview
+- Architecture setup: Hilt and KSP configuration, the MVI base class and the tag search screen
 
 ### How it is used
 

@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.ui.theme
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.theme
 
 import android.app.Activity
 import android.os.Build
