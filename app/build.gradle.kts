@@ -64,6 +64,10 @@ val jacocoExcludes = listOf(
     "**/Manifest*.*",
     "**/*Test*.*",
     "android/**/*.*",
+    // App entry points and DI wiring
+    "**/MainActivity.*",
+    "**/FlickrApp.*",
+    "**/di/**",
     // Hilt / Dagger
     "**/*_Factory*.*",
     "**/*_MembersInjector*.*",
@@ -85,10 +89,11 @@ val jacocoExcludes = listOf(
     "**/*\$serializer.*",
 )
 
-tasks.register<JacocoReport>("jacocoTestReport") {
+val unitTestExecutionData = "outputs/unit_test_code_coverage/debugUnitTest/*.exec"
+val androidTestExecutionData = "outputs/code_coverage/debugAndroidTest/connected/**/*.ec"
+
+fun JacocoReport.configureDebugCoverageReport(vararg executionDataPatterns: String) {
     group = "verification"
-    description = "Generates a JaCoCo coverage report for debug unit tests (and UI tests, if they were run)."
-    dependsOn("testDebugUnitTest")
 
     reports {
         html.required = true
@@ -107,15 +112,20 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     )
     sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
     executionData.setFrom(
-        buildDir.map {
-            fileTree(it) {
-                include(
-                    "outputs/unit_test_code_coverage/debugUnitTest/*.exec",
-                    "outputs/code_coverage/debugAndroidTest/connected/**/*.ec",
-                )
-            }
-        },
+        buildDir.map { fileTree(it) { include(*executionDataPatterns) } },
     )
+}
+
+tasks.register<JacocoReport>("jacocoTestReport") {
+    description = "Generates a JaCoCo coverage report for debug unit tests (including screenshot tests)."
+    dependsOn("testDebugUnitTest")
+    configureDebugCoverageReport(unitTestExecutionData)
+}
+
+tasks.register<JacocoReport>("jacocoFullTestReport") {
+    description = "Generates a merged JaCoCo coverage report for debug unit and UI tests (needs a device or emulator)."
+    dependsOn("testDebugUnitTest", "connectedDebugAndroidTest")
+    configureDebugCoverageReport(unitTestExecutionData, androidTestExecutionData)
 }
 
 dependencies {
