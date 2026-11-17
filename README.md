@@ -112,7 +112,7 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
-| Testing | JUnit 4, AndroidX Test, Espresso, Compose UI Test |
+| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11, Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test |
 
 > Networking, image loading and navigation libraries will be listed here once they are added.
 
@@ -129,7 +129,11 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 | Data | `data/` | Repository implementations, network |
 | DI | `di/` | Hilt modules that bind the layers together |
 
-> Only the presentation layer exists so far. The `domain`, `data` and `di` packages are created once they get their first code (photo search).
+> The `domain` and `data` packages are created once they get their first code (photo search). `di` holds `DispatcherProvider` so far.
+
+### Coroutine dispatchers
+
+Code never uses `Dispatchers.*` directly. It gets a `DispatcherProvider` (`main`, `io`, `default`) through Hilt. `DefaultDispatchers` is the production implementation, bound in `DispatcherProviderModule`. Unit tests pass test dispatchers instead, so coroutines run in a controlled, deterministic way.
 
 ### MVI
 
@@ -146,7 +150,7 @@ Every screen has a **contract** with three types:
   │◀── SharedFlow<Action> (one-off, no replay)
 ```
 
-`BaseViewModel<S, E, A>` (`presentation/base`) is the base class. It exposes `state` and `actions` and offers `setState { copy(...) }` and `sendAction(...)` to subclasses.
+`BaseViewModel<S, E, A>` (`presentation/base`) is the base class. It takes the initial state and a `DispatcherProvider`, exposes `state` and `actions`, and offers `setState { copy(...) }` and `sendAction(...)` to subclasses.
 
 Each screen is split into:
 
@@ -167,12 +171,18 @@ FlickrRecruitmentTask/
 │       │   ├── java/pl/marcin/malocha/flickrrecruitmenttask/
 │       │   │   ├── FlickrApp.kt             # @HiltAndroidApp Application
 │       │   │   ├── MainActivity.kt          # @AndroidEntryPoint, Compose host
+│       │   │   ├── di/                      # Hilt modules, DispatcherProvider
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
 │       │   │       ├── search/              # Tag search: contract, ViewModel, screen
 │       │   │       └── theme/               # Material 3 theme (Color, Theme, Type)
 │       │   └── res/                         # Resources (icons, strings, themes)
 │       ├── test/                            # Local unit tests (JVM)
+│       │   └── java/.../flickrrecruitmenttask/
+│       │       ├── di/providers/            # Test DispatcherProvider implementations
+│       │       ├── rules/                   # MainDispatcherRule
+│       │       ├── utils/                   # Test helpers (collectToList)
+│       │       └── presentation/search/     # SearchViewModelTest
 │       └── androidTest/                     # Instrumented tests (device/emulator)
 ├── gradle/
 │   ├── libs.versions.toml                   # Dependency version catalog
@@ -219,6 +229,13 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Testing
 
+Unit tests cover the ViewModels. They use:
+
+- **`MainDispatcherRule`**: a JUnit rule that replaces `Dispatchers.Main` with a test dispatcher for each test.
+- **Test `DispatcherProvider`s** (`StandardTestDispatcher`, `UnconfinedTestDispatcher`): they are passed to the ViewModel in place of `DefaultDispatchers`, sharing one `TestCoroutineScheduler`.
+- **Google Truth** for assertions and **MockK** for mocking dependencies.
+- State is checked through `state.value`. One-off actions are collected into a list with the `collectToList(flow)` helper (`utils/FlowTestUtils.kt`), which runs in `backgroundScope`.
+
 ```bash
 # Local unit tests (JVM)
 ./gradlew test
@@ -244,6 +261,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 4 | **MVI** with `StateFlow` for state and `SharedFlow` for actions; the view sends only events | One-way data flow, a single source of truth for the screen, and one-off actions that are not replayed after configuration changes |
 | 5 | `UiState` is a **data class**, not a sealed class | Fields such as the query and the results live side by side and are updated with `copy()`, without being lost when switching states |
 | 6 | `compileSdk` raised to 37 (`targetSdk` stays 36) | Current AndroidX libraries (`core` 1.19, `lifecycle` 2.11, `androidx.hilt` 1.4) need to compile against API 37 |
+| 7 | Coroutine dispatchers injected through **`DispatcherProvider`** | Tests can swap in test dispatchers and control time. The test implementations live in `src/test`, so the app does not depend on `kotlinx-coroutines-test`. |
 
 ---
 
@@ -262,6 +280,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Git repository setup: `.gitignore`, `.gitattributes` and remote configuration
 - This README: its structure, the Flickr API documentation and the project overview
 - Architecture setup: Hilt and KSP configuration, the MVI base class and the tag search screen
+- Unit test setup: `DispatcherProvider`, `MainDispatcherRule` and the `SearchViewModel` tests
 
 ### How it is used
 

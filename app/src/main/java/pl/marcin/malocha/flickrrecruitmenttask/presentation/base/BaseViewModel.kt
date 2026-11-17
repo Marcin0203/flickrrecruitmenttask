@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import pl.marcin.malocha.flickrrecruitmenttask.di.providers.DispatcherProvider
 
 /**
  * Base class for MVI view models.
@@ -17,8 +18,13 @@ import kotlinx.coroutines.launch
  * - [S] UI state: a data class exposed as [StateFlow], always holds the latest value.
  * - [E] events: the only input from the view, passed to [onEvent].
  * - [A] actions: one-off messages for the view (e.g. hide keyboard, navigation) exposed as [SharedFlow] without replay.
+ *
+ * Coroutines run on [dispatchers], so tests can swap them for test dispatchers.
  */
-abstract class BaseViewModel<S, E, A>(initialState: S) : ViewModel() {
+abstract class BaseViewModel<S, E, A>(
+    initialState: S,
+    protected val dispatchers: DispatcherProvider,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(initialState)
     val state: StateFlow<S> = _state.asStateFlow()
@@ -36,6 +42,6 @@ abstract class BaseViewModel<S, E, A>(initialState: S) : ViewModel() {
     }
 
     protected fun sendAction(action: A) {
-        viewModelScope.launch { _actions.emit(action) }
+        viewModelScope.launch(dispatchers.main) { _actions.emit(action) }
     }
 }
