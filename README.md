@@ -313,6 +313,7 @@ Runs on every pull request to `develop` or `main` (and can be started by hand). 
 | Job | What it runs | Artifacts |
 |-----|--------------|-----------|
 | **Build & Lint** | `./gradlew assembleDebug lintDebug` | Debug APK, Lint HTML report |
+| **Unit & screenshot tests** | `./gradlew verifyPaparazziDebug`: all JVM unit tests, with Paparazzi screenshots compared against the committed goldens | Unit test report; on failure, screenshot diff images |
 
 ---
 
