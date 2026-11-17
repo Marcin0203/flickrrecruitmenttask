@@ -318,6 +318,16 @@ Runs on every pull request to `develop` or `main` (and can be started by hand). 
 
 The three jobs run in parallel. They are required status checks for merging into `develop` and `main`.
 
+### CD (`release.yml`)
+
+Runs on every push to `main`, which means every merged `develop → main` pull request:
+
+1. Builds the debug APK (`./gradlew assembleDebug`).
+2. Creates a git tag `v<versionName>-<run number>`, for example `v1.0-7`, so every release has a unique tag without bumping the version by hand.
+3. Publishes a **GitHub Release** with the APK (`flickr-<tag>.apk`) and release notes generated from the merged pull requests.
+
+The APK is debug-signed, so it can be installed directly on a device. It can be downloaded from the repository's **Releases** page.
+
 ---
 
 ## Decisions log
