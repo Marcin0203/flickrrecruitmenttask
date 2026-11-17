@@ -314,6 +314,9 @@ Runs on every pull request to `develop` or `main` (and can be started by hand). 
 |-----|--------------|-----------|
 | **Build & Lint** | `./gradlew assembleDebug lintDebug` | Debug APK, Lint HTML report |
 | **Unit & screenshot tests** | `./gradlew verifyPaparazziDebug`: all JVM unit tests, with Paparazzi screenshots compared against the committed goldens | Unit test report; on failure, screenshot diff images |
+| **UI tests & coverage** | Starts an Android emulator (API 34) and runs `./gradlew jacocoFullTestReport`: unit and UI tests with merged JaCoCo coverage. The coverage is posted as a comment on the pull request. | UI test report, JaCoCo HTML/XML report |
+
+The three jobs run in parallel. They are required status checks for merging into `develop` and `main`.
 
 ---
 
