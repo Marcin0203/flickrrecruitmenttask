@@ -21,6 +21,7 @@ An Android app for searching public Flickr photos by tags. It is built with **Je
 - [Project structure](#project-structure)
 - [Getting started](#getting-started)
 - [Testing](#testing)
+- [CI/CD](#cicd)
 - [Decisions log](#decisions-log)
 - [AI assistance](#ai-assistance)
 - [Author](#author)
@@ -290,6 +291,31 @@ Code that is not meant to be tested is excluded, so the number reflects hand-wri
 
 ---
 
+## CI/CD
+
+The project uses **GitHub Actions** (`.github/workflows/`).
+
+### Branching
+
+```
+feature/* ──PR──▶ develop ──PR──▶ main
+```
+
+- Work is committed only on `feature/*` branches.
+- A feature branch is merged into `develop` through a pull request (squash merge).
+- `develop` is merged into `main` through a pull request (merge commit).
+- `develop` and `main` are protected: no direct pushes, and a pull request can be merged only when CI is green.
+
+### CI (`ci.yml`)
+
+Runs on every pull request to `develop` or `main` (and can be started by hand). A new push to the same branch cancels the run in progress.
+
+| Job | What it runs | Artifacts |
+|-----|--------------|-----------|
+| **Build & Lint** | `./gradlew assembleDebug lintDebug` | Debug APK, Lint HTML report |
+
+---
+
 ## Decisions log
 
 Key technical decisions and their reasoning, in the order they were made.
@@ -308,6 +334,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 10 | **Paparazzi** for screenshot tests, version `2.0.0-alpha05.1` | Runs on the JVM with no emulator, so it is fast and CI-friendly. The 2.0 alpha line is the only one that supports AGP 9. Light/dark and `dynamicColor = false` are handled once in a test util (`snapshotLightAndDark`), so there is one test per UI state and snapshots are deterministic. |
 | 11 | **JaCoCo** with two custom tasks (`jacocoTestReport`, `jacocoFullTestReport`) and an exclude list | The plain JaCoCo setup works with AGP 9 without extra plugins. One task works without a device, the other merges UI test coverage. Excluding generated code, entry points, DI wiring and previews keeps the coverage number meaningful. Previews are excluded with an annotation, so they can stay next to their screen. |
 | 12 | Screens are split into a public stateful **`XxxScreen`** and an `internal` stateless **`XxxScreenLayout`**; UI tests cover the whole `XxxScreen` with a real ViewModel | The screen is one unit, so one test file checks it end to end, including hiding the keyboard. `Route` is kept for navigation. The layout is `internal`, not `private`, so screenshot tests can render any state without a ViewModel. |
+| 13 | **GitHub Actions** CI with a `feature/* → develop → main` flow and protected `develop`/`main` | Every change is built, linted and tested before it reaches `develop`, and `main` always holds a working app. GitHub Actions is built into the repository, so no external CI service is needed. |
 
 ---
 
@@ -330,6 +357,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - UI tests: `SearchScreenTest`, which checks the whole screen with a real `SearchViewModel` (state updates and hiding the keyboard after a search)
 - Screenshot tests: Paparazzi setup, the `snapshotLightAndDark` helper and `SearchScreenScreenshotTest`
 - Code coverage: JaCoCo setup with the `jacocoTestReport` and `jacocoFullTestReport` tasks, the exclude list and the `@ExcludeFromJacocoGeneratedReport` annotation for previews
+- CI/CD: the GitHub Actions workflows and the branching flow
 
 ### How it is used
 
