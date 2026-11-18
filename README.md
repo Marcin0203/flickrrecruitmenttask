@@ -128,7 +128,7 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 
 | Layer | Package | Responsibility |
 |-------|---------|----------------|
-| Presentation | `presentation/` | Compose screens, ViewModels, MVI contracts, theme |
+| Presentation | `presentation/` | Compose screens (`screen/<name>`: contract, ViewModel, screen), the MVI base class, theme |
 | Domain | `domain/` | Use cases, models and repository interfaces (pure Kotlin) |
 | Data | `data/` | Repository implementations, data sources, network |
 | DI | `di/` | Hilt modules that bind the layers together |
@@ -267,7 +267,8 @@ FlickrRecruitmentTask/
 │       │   │   │   └── usecase/             # SearchPhotosUseCase
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
-│       │   │       ├── search/              # Tag search: contract, ViewModel, screen
+│       │   │       ├── screen/              # One package per screen
+│       │   │       │   └── search/          # Tag search: contract, ViewModel, screen
 │       │   │       ├── theme/               # Material 3 theme (Color, Theme, Type)
 │       │   │       └── utils/               # @ExcludeFromJacocoGeneratedReport (previews)
 │       │   └── res/                         # Resources (icons, strings, themes)
@@ -281,12 +282,12 @@ FlickrRecruitmentTask/
 │       │   │   ├── domain/usecase/          # SearchPhotosUseCaseTest
 │       │   │   ├── rules/                   # MainDispatcherRule
 │       │   │   ├── utils/                   # Test helpers (collectToList, snapshotLightAndDark)
-│       │   │   └── presentation/search/     # SearchViewModelTest, SearchScreenScreenshotTest
+│       │   │   └── presentation/screen/search/ # SearchViewModelTest, SearchScreenScreenshotTest
 │       │   ├── resources/feed/              # JSON fixtures of the Flickr feed
 │       │   └── snapshots/images/            # Paparazzi golden PNGs
 │       └── androidTest/                     # Instrumented tests (device/emulator)
 │           └── java/.../flickrrecruitmenttask/
-│               └── presentation/search/     # SearchScreenTest (UI → event)
+│               └── presentation/screen/search/ # SearchScreenTest (whole screen with a real ViewModel)
 ├── gradle/
 │   ├── libs.versions.toml                   # Dependency version catalog
 │   └── wrapper/                             # Gradle wrapper
@@ -478,6 +479,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 23 | **Coil 3** (`coil-compose` + `coil-network-okhttp`) for loading images, version 3.3.0 | The standard image loader for Compose, written in Kotlin with coroutines, with memory and disk caching built in. The OkHttp network module reuses a library the app already has, and it registers itself, so no `ImageLoader` setup or Hilt module is needed. 3.3.0 is the newest version built for Kotlin 2.2 (3.4+ is built with Kotlin 2.3/2.4). |
 | 24 | The results grid uses **`GridCells.Adaptive(160.dp)`** | The number of columns follows the screen width (two on a phone in portrait, more in landscape and on tablets) without any extra code. |
 | 25 | **`Photo.hasTitle`** is a derived flag in the domain; the "Untitled" fallback text comes from `strings.xml` in the UI | The UI only reads a flag and has no condition on the data. The fallback text is a string resource, so it can be translated, which a constant in the mapper could not. |
+| 26 | Screens live in **`presentation/screen/<name>`** (for example `screen/search`), one package per screen with its contract, ViewModel and composables | Screens are kept apart from the shared presentation code (`base`, `theme`, `utils`), so each screen is easy to find and a new one has an obvious place. Package names are lowercase, as is usual in Kotlin. |
 
 ---
 
@@ -509,6 +511,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Search in the ViewModel: the search state in `SearchUiState`, calling the use case from `SearchViewModel`, cancelling an older search, and the updated `SearchViewModelTest` and `SearchScreenTest`
 - Search states on the screen: the loading indicator, the error and "no results" messages, their UI tests and screenshot tests
 - Results grid: the Coil setup, the photo grid with titles and the "Untitled" fallback, `Photo.hasTitle`, `PhotoTest` and the new UI and screenshot tests
+- Package layout: moving the search screen to `presentation/screen/search`
 
 ### How it is used
 

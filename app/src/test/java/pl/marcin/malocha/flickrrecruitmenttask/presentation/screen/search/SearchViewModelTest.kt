@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery

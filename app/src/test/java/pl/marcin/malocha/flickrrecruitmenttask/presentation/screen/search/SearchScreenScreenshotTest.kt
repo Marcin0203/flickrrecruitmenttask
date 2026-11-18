@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi

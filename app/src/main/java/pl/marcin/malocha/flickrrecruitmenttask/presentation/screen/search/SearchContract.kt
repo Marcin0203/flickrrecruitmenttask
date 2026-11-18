@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 

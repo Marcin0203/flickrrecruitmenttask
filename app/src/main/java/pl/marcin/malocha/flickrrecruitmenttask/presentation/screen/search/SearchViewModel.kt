@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel

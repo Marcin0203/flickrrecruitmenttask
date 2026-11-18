@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
