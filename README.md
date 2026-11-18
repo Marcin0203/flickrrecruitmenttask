@@ -36,7 +36,7 @@ Build a simple Android application that uses Flickr's publicly accessible [photo
 
 | # | Requirement | Status |
 |---|-------------|:------:|
-| 1 | The user can enter one or more **tags** to search for | 🚧 (input UI) |
+| 1 | The user can enter one or more **tags** to search for | 🚧 (input UI, search in the ViewModel) |
 | 2 | Matching images are shown in a **list or grid** | 🚧 (API client) |
 | 3 | Each list item shows the **title** of its image | ⬜ |
 | 4 | Tapping an image opens it in a **full-screen view** | ⬜ |
@@ -114,7 +114,7 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
-| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11, Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
+| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11 (`mockk` for unit tests, `mockk-android` for UI tests), Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
 | Code coverage | JaCoCo 0.8.14 |
 
 > Image loading and navigation libraries will be listed here once they are added.
@@ -204,6 +204,24 @@ Every screen has a **contract** with three types:
 ```
 
 `BaseViewModel<S, E, A>` (`presentation/base`) is the base class. It takes the initial state and a `DispatcherProvider`, exposes `state` and `actions`, and offers `setState { copy(...) }` and `sendAction(...)` to subclasses.
+
+### Search screen
+
+`SearchViewModel` gets `SearchPhotosUseCase` through Hilt. `SearchUiState` holds the query and the result of the last search as flat fields:
+
+| Field | Meaning |
+|-------|---------|
+| `query` | Text typed into the search field |
+| `photos` | Photos found by the last successful search |
+| `isLoading` | A search is in progress |
+| `isError` | The last search failed (for example no network) |
+| `hasSearched` | At least one search has finished, so empty `photos` means "no results", not "not searched yet" |
+
+On `SearchClicked` with a non-blank query the ViewModel hides the keyboard and starts a search:
+
+- It sets `isLoading = true` and clears `isError`. The previous photos stay until the new result arrives.
+- On success it sets the new `photos`. On failure it clears `photos` and sets `isError`. Both set `hasSearched` and end loading.
+- A new search cancels the one still running, so a slow older response never overwrites a newer result.
 
 Each screen is split into:
 
@@ -303,12 +321,15 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Testing
 
-Unit tests cover the ViewModels. They use:
+Unit tests cover the ViewModels (`SearchViewModelTest` mocks `SearchPhotosUseCase`). They use:
 
 - **`MainDispatcherRule`**: a JUnit rule that replaces `Dispatchers.Main` with a test dispatcher for each test.
 - **Test `DispatcherProvider`s** (`StandardTestDispatcher`, `UnconfinedTestDispatcher`): they are passed to the ViewModel in place of `DefaultDispatchers`, sharing one `TestCoroutineScheduler`.
 - **Google Truth** for assertions and **MockK** for mocking dependencies.
 - State is checked through `state.value`. One-off actions are collected into a list with the `collectToList(flow)` helper (`utils/FlowTestUtils.kt`), which runs in `backgroundScope`.
+- A search that is still running is simulated with a `CompletableDeferred` that the mocked use case awaits. This is how the loading state and the cancellation of an older search are tested.
+
+`SearchViewModelTest` checks the query and the search button state, that a blank query does not search, the loading state, success, no results, failure (photos cleared), a success after a failure (error cleared) and that a new search cancels the previous one.
 
 API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory` against an OkHttp **MockWebServer**, so they need no network:
 
@@ -326,7 +347,7 @@ Mapper tests (`PhotoMapperTest`) check that every DTO field ends up in the right
 
 UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**: state flowing from the ViewModel to the UI and handling of one-off actions. They do not check how the screen looks:
 
-- There is one `XxxScreenTest` per screen. It renders the public `XxxScreen` with a real ViewModel created by hand (`SearchViewModel(DefaultDispatchers())`), so Hilt is not needed in tests.
+- There is one `XxxScreenTest` per screen. It renders the public `XxxScreen` with a real ViewModel created by hand, so Hilt is not needed in tests. `SearchScreenTest` passes a MockK `SearchPhotosUseCase` (`mockk-android`), so the tests never call Flickr and each test can set its own result.
 - Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the result in the UI, for example the button is enabled or the field lost focus after a search (the keyboard is hidden).
 - Visual appearance is covered by screenshot tests (below).
 
@@ -435,6 +456,9 @@ Key technical decisions and their reasoning, in the order they were made.
 | 16 | A **remote data source** (`PhotoRemoteDataSource`) sits between `FlickrApi` and the repository; there is no local data source | Only the data source knows the Flickr request format and does the IO switch. The repository will decide which source to use and map to the domain, so a cache can be added later without touching the network code. No local source is added now, because the task needs no caching. |
 | 17 | `PhotoRepository` is an interface in `domain`, implemented in `data`; `searchPhotos` returns **`Result<List<Photo>>`** and rethrows `CancellationException` | The domain does not depend on the data layer, and the presentation layer can be tested with a fake repository. `Result` makes failure part of the contract, so the presentation layer does not catch Retrofit/IO exceptions. Cancellation is rethrown so structured concurrency keeps working, which `runCatching` would break. |
 | 18 | `SearchPhotosUseCase` takes the **raw query** and splits it into tags; a query without tags returns an empty list without a network call | Turning user input into tags is app logic, so it lives in the pure-Kotlin domain and is unit tested without Android. The ViewModel stays thin, and the use case is more than a pass-through to the repository. Skipping the call avoids showing unrelated recent photos as results. |
+| 19 | `SearchUiState` keeps the search result in **flat fields** (`photos`, `isLoading`, `isError`, `hasSearched`), not in a sealed result type | The photos can be read and transformed (for example sorted or filtered) directly, without checking for a success state first, so the ViewModel and the UI stay simple. `hasSearched` tells "no results" apart from "not searched yet". |
+| 20 | A new search **cancels** the previous one (`searchJob`) | Only the latest query matters. Without cancelling, a slow response for an older query could overwrite the newer result. |
+| 21 | UI tests mock **`SearchPhotosUseCase`** with `mockk-android` instead of using a fake repository | The UI test checks the screen, not how the query is split into tags (that is unit tested). Mocking works the same way as in unit tests, and each test can set its own result (photos, error, loading) with one `coEvery`. Mocking a final class on a device needs API 28+, and the CI emulator runs API 34. |
 
 ---
 
@@ -463,6 +487,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Remote data source: `PhotoRemoteDataSource`, its Hilt binding and `PhotoRemoteDataSourceImplTest`
 - Repository: the `PhotoRepository` interface, `PhotoRepositoryImpl`, its Hilt binding and `PhotoRepositoryImplTest`
 - Use case: `SearchPhotosUseCase` (splitting the query into tags) and `SearchPhotosUseCaseTest`
+- Search in the ViewModel: the search state in `SearchUiState`, calling the use case from `SearchViewModel`, cancelling an older search, and the updated `SearchViewModelTest` and `SearchScreenTest`
 
 ### How it is used
 
