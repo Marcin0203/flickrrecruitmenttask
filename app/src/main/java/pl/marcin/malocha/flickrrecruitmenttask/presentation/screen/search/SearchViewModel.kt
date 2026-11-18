@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,6 +21,7 @@ class SearchViewModel @Inject constructor(
         when (event) {
             is SearchEvent.QueryChanged -> setState { copy(query = event.query) }
             SearchEvent.SearchClicked -> onSearchClicked()
+            is SearchEvent.PhotoClicked -> sendAction(SearchAction.NavigateToPhoto(event.photo))
         }
     }
 

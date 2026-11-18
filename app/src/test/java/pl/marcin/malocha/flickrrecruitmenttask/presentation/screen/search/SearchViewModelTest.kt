@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery
@@ -112,6 +112,15 @@ class SearchViewModelTest {
 
         assertThat(actions).isEmpty()
         coVerify(exactly = 0) { searchPhotos(any()) }
+    }
+
+    @Test
+    fun eventsTest_PhotoClicked_NavigatesToPhoto() = runTest(scheduler) {
+        val actions = collectToList(viewModel.actions)
+
+        viewModel.onEvent(SearchEvent.PhotoClicked(photo("1")))
+
+        assertThat(actions).containsExactly(SearchAction.NavigateToPhoto(photo("1")))
     }
 
     @Test

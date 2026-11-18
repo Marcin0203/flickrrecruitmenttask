@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 
@@ -27,8 +27,10 @@ data class SearchUiState(
 sealed interface SearchEvent {
     data class QueryChanged(val query: String) : SearchEvent
     data object SearchClicked : SearchEvent
+    data class PhotoClicked(val photo: Photo) : SearchEvent
 }
 
 sealed interface SearchAction {
     data object HideKeyboard : SearchAction
+    data class NavigateToPhoto(val photo: Photo) : SearchAction
 }

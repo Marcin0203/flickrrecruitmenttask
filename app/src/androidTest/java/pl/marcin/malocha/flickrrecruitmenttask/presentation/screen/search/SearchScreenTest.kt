@@ -1,4 +1,4 @@
-package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.search
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.google.common.truth.Truth.assertThat
 import io.mockk.coEvery
 import kotlinx.coroutines.CompletableDeferred
 import io.mockk.mockk
@@ -56,6 +57,7 @@ class SearchScreenTest {
     )
 
     private val searchPhotos: SearchPhotosUseCase = mockk()
+    private val navigatedToPhotos = mutableListOf<Photo>()
 
     @Before
     fun setUp() {
@@ -66,7 +68,7 @@ class SearchScreenTest {
         )
         composeTestRule.setContent {
             FlickrRecruitmentTaskTheme {
-                SearchScreen(viewModel = viewModel)
+                SearchScreen(onNavigateToPhoto = { navigatedToPhotos += it }, viewModel = viewModel)
             }
         }
     }
@@ -131,6 +133,19 @@ class SearchScreenTest {
         resultsGrid.performScrollToNode(hasText("Happy dog"))
         composeTestRule.onNodeWithText("Happy dog").assertIsDisplayed()
         noResultsMessage.assertDoesNotExist()
+    }
+
+    @Test
+    fun actionsTest_PhotoClicked_NavigatesToPhoto() {
+        val photo = photo(id = "1", title = "Sleepy cat")
+        coEvery { searchPhotos(any()) } returns Result.success(listOf(photo))
+        queryField.performTextInput("cat")
+        searchButton.performClick()
+
+        composeTestRule.onNodeWithText("Sleepy cat").performClick()
+        composeTestRule.waitForIdle()
+
+        assertThat(navigatedToPhotos).containsExactly(photo)
     }
 
     @Test
