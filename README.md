@@ -132,7 +132,7 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 | Data | `data/` | Repository implementations, network |
 | DI | `di/` | Hilt modules that bind the layers together |
 
-> `data` holds the Flickr API client so far. The `domain` package is created once it gets its first code. `di` holds `DispatcherProvider` and `NetworkModule`.
+> `data` holds the Flickr API client and the DTO → `Photo` mapper so far. `domain` holds the `Photo` model so far. `di` holds `DispatcherProvider` and `NetworkModule`.
 
 ### Networking
 
@@ -142,6 +142,8 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 - **DTOs** (`data/remote/dto`): `@Serializable` classes that declare only the fields the app uses (`title`, `link`, `media.m`). The parser skips the rest (`ignoreUnknownKeys`).
 - **`FlickrApiFactory`**: builds `FlickrApi` from an `OkHttpClient` and a base URL (`https://api.flickr.com/` by default). It lives outside the Hilt module, so tests use exactly the same Retrofit and JSON setup against a mock server.
 - **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` and `FlickrApi`.
+
+`data/mapper/PhotoMapper.kt` maps the DTOs to the domain `Photo`: the photo's `link` becomes its `id`, `media.m` is the thumbnail, and the full-size URL is the same URL with the `_m` size suffix swapped for `_b` (1024 px). A URL without the `_m` suffix is kept as it is.
 
 ### Coroutine dispatchers
 
@@ -187,8 +189,11 @@ FlickrRecruitmentTask/
 │       │   │   ├── FlickrApp.kt             # @HiltAndroidApp Application
 │       │   │   ├── MainActivity.kt          # @AndroidEntryPoint, Compose host
 │       │   │   ├── data/
+│       │   │   │   ├── mapper/              # DTO → domain model mapping
 │       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, DTOs
 │       │   │   ├── di/                      # Hilt modules (dispatchers, network), DispatcherProvider
+│       │   │   ├── domain/
+│       │   │   │   └── model/               # Photo (domain model)
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
 │       │   │       ├── search/              # Tag search: contract, ViewModel, screen
@@ -197,6 +202,7 @@ FlickrRecruitmentTask/
 │       │   └── res/                         # Resources (icons, strings, themes)
 │       ├── test/                            # Local unit tests (JVM)
 │       │   ├── java/.../flickrrecruitmenttask/
+│       │   │   ├── data/mapper/             # PhotoMapperTest
 │       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer)
 │       │   │   ├── di/providers/            # Test DispatcherProvider implementations
 │       │   │   ├── rules/                   # MainDispatcherRule
@@ -264,6 +270,8 @@ API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory` agains
 - The request: the path, the fixed `format` and `nojsoncallback` parameters and the `tags` parameter.
 - Parsing: JSON fixtures in `src/test/resources/feed/` have the same shape as the real feed, including unknown fields, escaped slashes and an empty title. One fixture has no items.
 - Errors: an HTTP error response ends in a Retrofit `HttpException`.
+
+Mapper tests (`PhotoMapperTest`) check that every DTO field ends up in the right `Photo` field, including an empty title, the `_m` → `_b` swap (only right before the file extension, for any extension) and a URL without the `_m` suffix, which is kept as it is.
 
 UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**: state flowing from the ViewModel to the UI and handling of one-off actions. They do not check how the screen looks:
 
@@ -372,6 +380,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 12 | Screens are split into a public stateful **`XxxScreen`** and an `internal` stateless **`XxxScreenLayout`**; UI tests cover the whole `XxxScreen` with a real ViewModel | The screen is one unit, so one test file checks it end to end, including hiding the keyboard. `Route` is kept for navigation. The layout is `internal`, not `private`, so screenshot tests can render any state without a ViewModel. |
 | 13 | **GitHub Actions** CI with a `feature/* → develop → main` flow and protected `develop`/`main` | Every change is built, linted and tested before it reaches `develop`, and `main` always holds a working app. GitHub Actions is built into the repository, so no external CI service is needed. |
 | 14 | **Retrofit** + **OkHttp** + **kotlinx.serialization** for the Flickr feed; kotlinx.serialization stays on 1.9.0 | The standard, well-known networking stack. Retrofit 3 ships a kotlinx.serialization converter, so no reflection-based parser is needed. 1.9.0 is the newest version built for Kotlin 2.2 (1.10+ needs Kotlin 2.3+). |
+| 15 | The full-screen view uses the **`_b` (1024 px)** image, built from the feed's `_m` URL in the mapper | The feed only returns the small image. `_b` is sharp on phone screens and still quick to load. Building the URL in the mapper keeps the UI unaware of Flickr's URL format. |
 
 ---
 
@@ -396,6 +405,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Code coverage: JaCoCo setup with the `jacocoTestReport` and `jacocoFullTestReport` tasks, the exclude list and the `@ExcludeFromJacocoGeneratedReport` annotation for previews
 - CI/CD: the GitHub Actions workflows and the branching flow
 - Networking: the Retrofit/OkHttp/kotlinx.serialization setup, `FlickrApi`, its DTOs and `FlickrApiTest` with MockWebServer
+- Domain layer: the `Photo` model, the DTO → `Photo` mapper and `PhotoMapperTest`
 
 ### How it is used
 
