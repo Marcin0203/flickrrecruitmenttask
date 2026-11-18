@@ -1,14 +1,20 @@
 package pl.marcin.malocha.flickrrecruitmenttask.presentation.search
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -19,17 +25,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
 import pl.marcin.malocha.flickrrecruitmenttask.R
+import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.utils.ExcludeFromJacocoGeneratedReport
 
@@ -39,6 +49,8 @@ object SearchScreenTestTags {
     const val LOADING_INDICATOR = "search_loading_indicator"
     const val ERROR_MESSAGE = "search_error_message"
     const val NO_RESULTS_MESSAGE = "search_no_results_message"
+    const val RESULTS_GRID = "search_results_grid"
+    const val PHOTO_ITEM = "search_photo_item"
 }
 
 @Composable
@@ -118,9 +130,58 @@ internal fun SearchScreenLayout(
                         text = stringResource(R.string.search_no_results),
                         modifier = Modifier.testTag(SearchScreenTestTags.NO_RESULTS_MESSAGE),
                     )
+                    else -> PhotoGrid(photos = state.photos)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PhotoGrid(
+    photos: List<Photo>,
+    modifier: Modifier = Modifier,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 160.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .testTag(SearchScreenTestTags.RESULTS_GRID),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(photos, key = { it.id }) { photo ->
+            PhotoGridItem(photo = photo)
+        }
+    }
+}
+
+@Composable
+private fun PhotoGridItem(
+    photo: Photo,
+    modifier: Modifier = Modifier,
+) {
+    val title = if (photo.hasTitle) photo.title else stringResource(R.string.photo_untitled)
+    Card(modifier = modifier.testTag(SearchScreenTestTags.PHOTO_ITEM)) {
+        AsyncImage(
+            model = photo.thumbnailUrl,
+            contentDescription = title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                // Visible until the image is loaded.
+                .background(MaterialTheme.colorScheme.secondaryContainer),
+            contentScale = ContentScale.Crop,
+        )
+        Text(
+            text = title,
+            modifier = Modifier.padding(8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            // Two lines for every title, so all cards in a row have the same height.
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -180,6 +241,29 @@ private fun SearchScreenNoResultsPreview() {
     FlickrRecruitmentTaskTheme {
         SearchScreenLayout(
             state = SearchUiState(query = "cat, dog", hasSearched = true),
+            onEvent = {},
+        )
+    }
+}
+
+@ExcludeFromJacocoGeneratedReport
+@Preview(showBackground = true)
+@Composable
+private fun SearchScreenResultsPreview() {
+    FlickrRecruitmentTaskTheme {
+        SearchScreenLayout(
+            state = SearchUiState(
+                query = "cat, dog",
+                photos = List(4) { index ->
+                    Photo(
+                        id = "photo_$index",
+                        title = if (index == 1) "" else "Photo $index",
+                        thumbnailUrl = "",
+                        fullSizeUrl = "",
+                    )
+                },
+                hasSearched = true,
+            ),
             onEvent = {},
         )
     }

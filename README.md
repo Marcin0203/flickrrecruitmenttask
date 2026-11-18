@@ -8,7 +8,7 @@
 
 An Android app for searching public Flickr photos by tags. It is built with **Jetpack Compose** as a recruitment task for the second interview round.
 
-> **Status:** 🚧 In development. The architecture, the tag input screen, the test setup and CI/CD are in place. Photo search and the remaining requirements below are being implemented step by step.
+> **Status:** 🚧 In development. Tag search with a photo grid, the test setup and CI/CD are in place. The full-screen photo view is being implemented next.
 
 ---
 
@@ -36,9 +36,9 @@ Build a simple Android application that uses Flickr's publicly accessible [photo
 
 | # | Requirement | Status |
 |---|-------------|:------:|
-| 1 | The user can enter one or more **tags** to search for | 🚧 (input UI, search in the ViewModel) |
-| 2 | Matching images are shown in a **list or grid** | 🚧 (API client) |
-| 3 | Each list item shows the **title** of its image | ⬜ |
+| 1 | The user can enter one or more **tags** to search for | ✅ |
+| 2 | Matching images are shown in a **list or grid** | ✅ |
+| 3 | Each list item shows the **title** of its image | ✅ |
 | 4 | Tapping an image opens it in a **full-screen view** | ⬜ |
 | 5 | The UI is built with **Jetpack Compose** | ✅ (project setup) |
 
@@ -111,13 +111,14 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | Architecture | MVI on `StateFlow` / `SharedFlow`, AndroidX ViewModel, Lifecycle Compose 2.11.0 (`collectAsStateWithLifecycle`) |
 | Dependency injection | Hilt 2.60.1 (KSP 2.3.12), `androidx.hilt` 1.4.0 (`hiltViewModel()`) |
 | Networking | Retrofit 3.0.0, OkHttp 5.5.1, kotlinx.serialization 1.9.0 (Retrofit converter) |
+| Image loading | Coil 3.3.0 (`coil-compose`, `coil-network-okhttp`) |
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
 | Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11 (`mockk` for unit tests, `mockk-android` for UI tests), Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
 | Code coverage | JaCoCo 0.8.14 |
 
-> Image loading and navigation libraries will be listed here once they are added.
+> The navigation library will be listed here once it is added.
 
 ---
 
@@ -228,7 +229,9 @@ Below the form the screen shows the first state that applies:
 1. `isLoading`: a progress indicator.
 2. `isError`: the message "Couldn't load photos. Check your connection and try again." To try again, the user taps Search.
 3. `hasNoResults` (derived: the last search finished without error and found no photos): the message "No photos found for these tags."
-4. Otherwise nothing (before the first search).
+4. Otherwise the photo grid (empty before the first search).
+
+The grid is a `LazyVerticalGrid` with `GridCells.Adaptive(160.dp)`: two columns on a phone in portrait, more in landscape and on tablets. Each card shows the square-cropped thumbnail, loaded with Coil's `AsyncImage`, and the title in two lines. A coloured background is visible until the image is loaded. A photo without a title (`Photo.hasTitle` is `false`) shows "Untitled" from `strings.xml`.
 
 Each screen is split into:
 
@@ -259,7 +262,7 @@ FlickrRecruitmentTask/
 │       │   │   │       └── datasource/      # PhotoRemoteDataSource
 │       │   │   ├── di/                      # Hilt modules (dispatchers, network, data sources, repositories), DispatcherProvider
 │       │   │   ├── domain/
-│       │   │   │   ├── model/               # Photo (domain model)
+│       │   │   │   ├── model/               # Photo (domain model, with the derived hasTitle)
 │       │   │   │   ├── repository/          # PhotoRepository (interface)
 │       │   │   │   └── usecase/             # SearchPhotosUseCase
 │       │   │   └── presentation/
@@ -274,6 +277,7 @@ FlickrRecruitmentTask/
 │       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer), datasource/PhotoRemoteDataSourceImplTest
 │       │   │   ├── data/repository/         # PhotoRepositoryImplTest
 │       │   │   ├── di/providers/            # Test DispatcherProvider implementations
+│       │   │   ├── domain/model/            # PhotoTest
 │       │   │   ├── domain/usecase/          # SearchPhotosUseCaseTest
 │       │   │   ├── rules/                   # MainDispatcherRule
 │       │   │   ├── utils/                   # Test helpers (collectToList, snapshotLightAndDark)
@@ -350,6 +354,8 @@ Repository tests (`PhotoRepositoryImplTest`) use a MockK `PhotoRemoteDataSource`
 
 Use case tests (`SearchPhotosUseCaseTest`) use a MockK `PhotoRepository`. They check how the query is split into tags (commas, spaces, empty tags, duplicates), that a query without tags returns an empty list without calling the repository, and that the repository's success and failure are returned unchanged.
 
+Model tests (`PhotoTest`) check `hasTitle`: `true` for a title, `false` for an empty or blank one.
+
 Mapper tests (`PhotoMapperTest`) check that every DTO field ends up in the right `Photo` field, including an empty title, the `_m` → `_b` swap (only right before the file extension, for any extension) and a URL without the `_m` suffix, which is kept as it is.
 
 UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**: state flowing from the ViewModel to the UI and handling of one-off actions. They do not check how the screen looks:
@@ -357,11 +363,12 @@ UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**
 - There is one `XxxScreenTest` per screen. It renders the public `XxxScreen` with a real ViewModel created by hand, so Hilt is not needed in tests. `SearchScreenTest` passes a MockK `SearchPhotosUseCase` (`mockk-android`), so the tests never call Flickr and each test can set its own result.
 - Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the result in the UI, for example the button is enabled or the field lost focus after a search (the keyboard is hidden).
 - `SearchScreenTest` also checks the search states: nothing is shown at first, a search that never finishes (a `CompletableDeferred` the mocked use case awaits) shows the progress indicator, a failed search shows the error message, and a search without photos shows the "no results" message.
+- It also checks the results: after a search with two photos the grid shows exactly two items with their titles, and a photo without a title shows "Untitled". The image URLs are fake, so the tests do not depend on images being loaded.
 - Visual appearance is covered by screenshot tests (below).
 
 Screenshot tests (**Paparazzi**) cover how screens look. They render the stateless `XxxScreenLayout` on the JVM with layoutlib, so they need no device or emulator:
 
-- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query, loading, error, no results) on a `PIXEL_5` device config.
+- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query, loading, error, no results, results). Images are not loaded in Paparazzi, so the results snapshot shows the placeholder background and stays deterministic on a `PIXEL_5` device config.
 - Each test calls the generic `Paparazzi.snapshotLightAndDark { ... }` helper (`utils/PaparazziTestUtils.kt`). It takes two named snapshots (`light`, `dark`) of any composable in the app theme with `dynamicColor = false`, so tests only describe what to render and the result does not depend on the wallpaper or API level.
 - Golden images live in `app/src/test/snapshots/images/` and are committed. After an intended UI change, record them again and review the PNG diff.
 
@@ -468,6 +475,9 @@ Key technical decisions and their reasoning, in the order they were made.
 | 20 | A new search **cancels** the previous one (`searchJob`) | Only the latest query matters. Without cancelling, a slow response for an older query could overwrite the newer result. |
 | 21 | UI tests mock **`SearchPhotosUseCase`** with `mockk-android` instead of using a fake repository | The UI test checks the screen, not how the query is split into tags (that is unit tested). Mocking works the same way as in unit tests, and each test can set its own result (photos, error, loading) with one `coEvery`. Mocking a final class on a device needs API 28+, and the CI emulator runs API 34. |
 | 22 | A failed search shows an **error message in the screen content**, from `isError` in the state, not a Snackbar; there is no separate Retry button | The message comes from the state, so it stays after rotation and needs no one-off action. Tapping Search again retries, so a Retry button would add nothing the task needs. |
+| 23 | **Coil 3** (`coil-compose` + `coil-network-okhttp`) for loading images, version 3.3.0 | The standard image loader for Compose, written in Kotlin with coroutines, with memory and disk caching built in. The OkHttp network module reuses a library the app already has, and it registers itself, so no `ImageLoader` setup or Hilt module is needed. 3.3.0 is the newest version built for Kotlin 2.2 (3.4+ is built with Kotlin 2.3/2.4). |
+| 24 | The results grid uses **`GridCells.Adaptive(160.dp)`** | The number of columns follows the screen width (two on a phone in portrait, more in landscape and on tablets) without any extra code. |
+| 25 | **`Photo.hasTitle`** is a derived flag in the domain; the "Untitled" fallback text comes from `strings.xml` in the UI | The UI only reads a flag and has no condition on the data. The fallback text is a string resource, so it can be translated, which a constant in the mapper could not. |
 
 ---
 
@@ -498,6 +508,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Use case: `SearchPhotosUseCase` (splitting the query into tags) and `SearchPhotosUseCaseTest`
 - Search in the ViewModel: the search state in `SearchUiState`, calling the use case from `SearchViewModel`, cancelling an older search, and the updated `SearchViewModelTest` and `SearchScreenTest`
 - Search states on the screen: the loading indicator, the error and "no results" messages, their UI tests and screenshot tests
+- Results grid: the Coil setup, the photo grid with titles and the "Untitled" fallback, `Photo.hasTitle`, `PhotoTest` and the new UI and screenshot tests
 
 ### How it is used
 
