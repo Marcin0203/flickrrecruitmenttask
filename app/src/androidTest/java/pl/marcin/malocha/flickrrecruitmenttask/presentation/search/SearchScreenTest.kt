@@ -7,12 +7,14 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mockk.coEvery
@@ -123,7 +125,10 @@ class SearchScreenTest {
 
         resultsGrid.assertIsDisplayed()
         photoItems.assertCountEquals(2)
+        // On a narrow screen the grid has one column, so the second photo can be below the bottom edge.
+        resultsGrid.performScrollToNode(hasText("Sleepy cat"))
         composeTestRule.onNodeWithText("Sleepy cat").assertIsDisplayed()
+        resultsGrid.performScrollToNode(hasText("Happy dog"))
         composeTestRule.onNodeWithText("Happy dog").assertIsDisplayed()
         noResultsMessage.assertDoesNotExist()
     }
