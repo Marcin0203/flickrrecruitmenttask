@@ -11,11 +11,14 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.mockk.coEvery
+import io.mockk.mockk
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import pl.marcin.malocha.flickrrecruitmenttask.di.providers.DefaultDispatchers
+import pl.marcin.malocha.flickrrecruitmenttask.domain.usecase.SearchPhotosUseCase
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
 
 /**
@@ -31,9 +34,15 @@ class SearchScreenTest {
     private val queryField get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.QUERY_FIELD)
     private val searchButton get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.SEARCH_BUTTON)
 
+    private val searchPhotos: SearchPhotosUseCase = mockk()
+
     @Before
     fun setUp() {
-        val viewModel = SearchViewModel(DefaultDispatchers())
+        coEvery { searchPhotos(any()) } returns Result.success(emptyList())
+        val viewModel = SearchViewModel(
+            searchPhotos = searchPhotos,
+            dispatchers = DefaultDispatchers(),
+        )
         composeTestRule.setContent {
             FlickrRecruitmentTaskTheme {
                 SearchScreen(viewModel = viewModel)
