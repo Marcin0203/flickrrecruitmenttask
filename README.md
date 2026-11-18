@@ -114,7 +114,7 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
-| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11, Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests) |
+| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11, Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
 | Code coverage | JaCoCo 0.8.14 |
 
 > Image loading and navigation libraries will be listed here once they are added.
@@ -140,7 +140,7 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 
 - **`FlickrApi`**: a Retrofit interface with one call, `getPublicPhotos(tags)`. The fixed `format=json&nojsoncallback=1` parameters are part of the path, and `tags` is added as a query parameter.
 - **DTOs** (`data/remote/dto`): `@Serializable` classes that declare only the fields the app uses (`title`, `link`, `media.m`). The parser skips the rest (`ignoreUnknownKeys`).
-- **`FlickrApiFactory`**: builds `FlickrApi` from an `OkHttpClient` and a base URL (`https://api.flickr.com/` by default). It lives outside the Hilt module, so tests can use exactly the same Retrofit and JSON setup against a mock server.
+- **`FlickrApiFactory`**: builds `FlickrApi` from an `OkHttpClient` and a base URL (`https://api.flickr.com/` by default). It lives outside the Hilt module, so tests use exactly the same Retrofit and JSON setup against a mock server.
 - **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` and `FlickrApi`.
 
 ### Coroutine dispatchers
@@ -197,10 +197,12 @@ FlickrRecruitmentTask/
 │       │   └── res/                         # Resources (icons, strings, themes)
 │       ├── test/                            # Local unit tests (JVM)
 │       │   ├── java/.../flickrrecruitmenttask/
+│       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer)
 │       │   │   ├── di/providers/            # Test DispatcherProvider implementations
 │       │   │   ├── rules/                   # MainDispatcherRule
 │       │   │   ├── utils/                   # Test helpers (collectToList, snapshotLightAndDark)
 │       │   │   └── presentation/search/     # SearchViewModelTest, SearchScreenScreenshotTest
+│       │   ├── resources/feed/              # JSON fixtures of the Flickr feed
 │       │   └── snapshots/images/            # Paparazzi golden PNGs
 │       └── androidTest/                     # Instrumented tests (device/emulator)
 │           └── java/.../flickrrecruitmenttask/
@@ -256,6 +258,12 @@ Unit tests cover the ViewModels. They use:
 - **Test `DispatcherProvider`s** (`StandardTestDispatcher`, `UnconfinedTestDispatcher`): they are passed to the ViewModel in place of `DefaultDispatchers`, sharing one `TestCoroutineScheduler`.
 - **Google Truth** for assertions and **MockK** for mocking dependencies.
 - State is checked through `state.value`. One-off actions are collected into a list with the `collectToList(flow)` helper (`utils/FlowTestUtils.kt`), which runs in `backgroundScope`.
+
+API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory` against an OkHttp **MockWebServer**, so they need no network:
+
+- The request: the path, the fixed `format` and `nojsoncallback` parameters and the `tags` parameter.
+- Parsing: JSON fixtures in `src/test/resources/feed/` have the same shape as the real feed, including unknown fields, escaped slashes and an empty title. One fixture has no items.
+- Errors: an HTTP error response ends in a Retrofit `HttpException`.
 
 UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**: state flowing from the ViewModel to the UI and handling of one-off actions. They do not check how the screen looks:
 
@@ -387,7 +395,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Screenshot tests: Paparazzi setup, the `snapshotLightAndDark` helper and `SearchScreenScreenshotTest`
 - Code coverage: JaCoCo setup with the `jacocoTestReport` and `jacocoFullTestReport` tasks, the exclude list and the `@ExcludeFromJacocoGeneratedReport` annotation for previews
 - CI/CD: the GitHub Actions workflows and the branching flow
-- Networking: the Retrofit/OkHttp/kotlinx.serialization setup, `FlickrApi` and its DTOs
+- Networking: the Retrofit/OkHttp/kotlinx.serialization setup, `FlickrApi`, its DTOs and `FlickrApiTest` with MockWebServer
 
 ### How it is used
 
