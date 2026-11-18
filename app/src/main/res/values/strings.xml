@@ -3,4 +3,8 @@
     <string name="search_tags_label">Tags</string>
     <string name="search_tags_placeholder">e.g. cat, dog</string>
     <string name="search_button">Search</string>
+    <string name="search_error">Couldn\'t load photos. Check your connection and try again.</string>
+    <string name="search_no_results">No photos found for these tags.</string>
+    <string name="photo_untitled">Untitled</string>
+    <string name="photo_detail_back">Back</string>
 </resources>
