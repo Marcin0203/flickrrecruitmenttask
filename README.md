@@ -192,7 +192,7 @@ Code never uses `Dispatchers.*` directly. It gets a `DispatcherProvider` (`main`
 
 Every screen has a **contract** with three types:
 
-- **`UiState`**: a `data class` that holds the whole screen state. Derived values (for example `isSearchEnabled`) are computed properties.
+- **`UiState`**: a `data class` that holds the whole screen state. Derived values (for example `isSearchEnabled`, `hasNoResults`) are computed properties, so the UI only reads flags and has no logic of its own.
 - **`Event`**: a `sealed interface` of user actions. Events are the only thing the view sends to the ViewModel.
 - **`Action`**: a `sealed interface` of one-off messages for the view (for example hiding the keyboard).
 
@@ -222,6 +222,13 @@ On `SearchClicked` with a non-blank query the ViewModel hides the keyboard and s
 - It sets `isLoading = true` and clears `isError`. The previous photos stay until the new result arrives.
 - On success it sets the new `photos`. On failure it clears `photos` and sets `isError`. Both set `hasSearched` and end loading.
 - A new search cancels the one still running, so a slow older response never overwrites a newer result.
+
+Below the form the screen shows the first state that applies:
+
+1. `isLoading`: a progress indicator.
+2. `isError`: the message "Couldn't load photos. Check your connection and try again." To try again, the user taps Search.
+3. `hasNoResults` (derived: the last search finished without error and found no photos): the message "No photos found for these tags."
+4. Otherwise nothing (before the first search).
 
 Each screen is split into:
 
@@ -349,11 +356,12 @@ UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**
 
 - There is one `XxxScreenTest` per screen. It renders the public `XxxScreen` with a real ViewModel created by hand, so Hilt is not needed in tests. `SearchScreenTest` passes a MockK `SearchPhotosUseCase` (`mockk-android`), so the tests never call Flickr and each test can set its own result.
 - Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the result in the UI, for example the button is enabled or the field lost focus after a search (the keyboard is hidden).
+- `SearchScreenTest` also checks the search states: nothing is shown at first, a search that never finishes (a `CompletableDeferred` the mocked use case awaits) shows the progress indicator, a failed search shows the error message, and a search without photos shows the "no results" message.
 - Visual appearance is covered by screenshot tests (below).
 
 Screenshot tests (**Paparazzi**) cover how screens look. They render the stateless `XxxScreenLayout` on the JVM with layoutlib, so they need no device or emulator:
 
-- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query) on a `PIXEL_5` device config.
+- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query, loading, error, no results) on a `PIXEL_5` device config.
 - Each test calls the generic `Paparazzi.snapshotLightAndDark { ... }` helper (`utils/PaparazziTestUtils.kt`). It takes two named snapshots (`light`, `dark`) of any composable in the app theme with `dynamicColor = false`, so tests only describe what to render and the result does not depend on the wallpaper or API level.
 - Golden images live in `app/src/test/snapshots/images/` and are committed. After an intended UI change, record them again and review the PNG diff.
 
@@ -459,6 +467,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 19 | `SearchUiState` keeps the search result in **flat fields** (`photos`, `isLoading`, `isError`, `hasSearched`), not in a sealed result type | The photos can be read and transformed (for example sorted or filtered) directly, without checking for a success state first, so the ViewModel and the UI stay simple. `hasSearched` tells "no results" apart from "not searched yet". |
 | 20 | A new search **cancels** the previous one (`searchJob`) | Only the latest query matters. Without cancelling, a slow response for an older query could overwrite the newer result. |
 | 21 | UI tests mock **`SearchPhotosUseCase`** with `mockk-android` instead of using a fake repository | The UI test checks the screen, not how the query is split into tags (that is unit tested). Mocking works the same way as in unit tests, and each test can set its own result (photos, error, loading) with one `coEvery`. Mocking a final class on a device needs API 28+, and the CI emulator runs API 34. |
+| 22 | A failed search shows an **error message in the screen content**, from `isError` in the state, not a Snackbar; there is no separate Retry button | The message comes from the state, so it stays after rotation and needs no one-off action. Tapping Search again retries, so a Retry button would add nothing the task needs. |
 
 ---
 
@@ -488,6 +497,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Repository: the `PhotoRepository` interface, `PhotoRepositoryImpl`, its Hilt binding and `PhotoRepositoryImplTest`
 - Use case: `SearchPhotosUseCase` (splitting the query into tags) and `SearchPhotosUseCaseTest`
 - Search in the ViewModel: the search state in `SearchUiState`, calling the use case from `SearchViewModel`, cancelling an older search, and the updated `SearchViewModelTest` and `SearchScreenTest`
+- Search states on the screen: the loading indicator, the error and "no results" messages, their UI tests and screenshot tests
 
 ### How it is used
 

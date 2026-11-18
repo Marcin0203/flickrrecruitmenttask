@@ -18,6 +18,10 @@ data class SearchUiState(
 ) {
     val isSearchEnabled: Boolean
         get() = query.isNotBlank()
+
+    /** The last search finished without error and found no photos. */
+    val hasNoResults: Boolean
+        get() = hasSearched && !isLoading && !isError && photos.isEmpty()
 }
 
 sealed interface SearchEvent {

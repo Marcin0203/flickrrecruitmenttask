@@ -25,4 +25,22 @@ class SearchScreenScreenshotTest {
     fun screenshotTest_FilledQuery() = paparazzi.snapshotLightAndDark {
         SearchScreenLayout(state = SearchUiState(query = "cat, dog"), onEvent = {})
     }
+
+    @Test
+    fun screenshotTest_Loading() = paparazzi.snapshotLightAndDark {
+        SearchScreenLayout(state = SearchUiState(query = "cat, dog", isLoading = true), onEvent = {})
+    }
+
+    @Test
+    fun screenshotTest_Error() = paparazzi.snapshotLightAndDark {
+        SearchScreenLayout(
+            state = SearchUiState(query = "cat, dog", isError = true, hasSearched = true),
+            onEvent = {},
+        )
+    }
+
+    @Test
+    fun screenshotTest_NoResults() = paparazzi.snapshotLightAndDark {
+        SearchScreenLayout(state = SearchUiState(query = "cat, dog", hasSearched = true), onEvent = {})
+    }
 }

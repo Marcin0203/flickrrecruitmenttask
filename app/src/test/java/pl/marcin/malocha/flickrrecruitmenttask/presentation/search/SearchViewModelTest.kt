@@ -63,6 +63,7 @@ class SearchViewModelTest {
         assertThat(state.isLoading).isFalse()
         assertThat(state.isError).isFalse()
         assertThat(state.hasSearched).isFalse()
+        assertThat(state.hasNoResults).isFalse()
     }
 
     @Test
@@ -122,6 +123,7 @@ class SearchViewModelTest {
 
         assertThat(viewModel.state.value.isLoading).isTrue()
         assertThat(viewModel.state.value.hasSearched).isFalse()
+        assertThat(viewModel.state.value.hasNoResults).isFalse()
 
         result.complete(Result.success(emptyList()))
 
@@ -140,6 +142,7 @@ class SearchViewModelTest {
         assertThat(state.isLoading).isFalse()
         assertThat(state.isError).isFalse()
         assertThat(state.hasSearched).isTrue()
+        assertThat(state.hasNoResults).isFalse()
     }
 
     @Test
@@ -150,6 +153,7 @@ class SearchViewModelTest {
         assertThat(state.photos).isEmpty()
         assertThat(state.isError).isFalse()
         assertThat(state.hasSearched).isTrue()
+        assertThat(state.hasNoResults).isTrue()
     }
 
     @Test
@@ -165,6 +169,7 @@ class SearchViewModelTest {
         assertThat(state.isLoading).isFalse()
         assertThat(state.isError).isTrue()
         assertThat(state.hasSearched).isTrue()
+        assertThat(state.hasNoResults).isFalse()
     }
 
     @Test
