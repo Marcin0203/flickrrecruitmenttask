@@ -37,7 +37,7 @@ Build a simple Android application that uses Flickr's publicly accessible [photo
 | # | Requirement | Status |
 |---|-------------|:------:|
 | 1 | The user can enter one or more **tags** to search for | 🚧 (input UI) |
-| 2 | Matching images are shown in a **list or grid** | ⬜ |
+| 2 | Matching images are shown in a **list or grid** | 🚧 (API client) |
 | 3 | Each list item shows the **title** of its image | ⬜ |
 | 4 | Tapping an image opens it in a **full-screen view** | ⬜ |
 | 5 | The UI is built with **Jetpack Compose** | ✅ (project setup) |
@@ -98,7 +98,7 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 - `media.m` is a small image (about 240 px). Larger sizes come from swapping the size suffix in the URL, for example `_m` → `_b` (1024 px).
 - `title` can be empty, so the UI needs a fallback.
 - `description` contains HTML.
-- The feed's JSON has been known to sometimes contain invalid escape sequences (such as `\'`). The parser should be lenient.
+- Older versions of the feed were known to put invalid escape sequences (such as `\'`) in the JSON. The live feed returns valid JSON (checked on 2026-11-18), so the app uses a standard parser that only skips unknown keys.
 
 ---
 
@@ -110,13 +110,14 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | UI | Jetpack Compose (BOM 2026.02.01), Material 3 |
 | Architecture | MVI on `StateFlow` / `SharedFlow`, AndroidX ViewModel, Lifecycle Compose 2.11.0 (`collectAsStateWithLifecycle`) |
 | Dependency injection | Hilt 2.60.1 (KSP 2.3.12), `androidx.hilt` 1.4.0 (`hiltViewModel()`) |
+| Networking | Retrofit 3.0.0, OkHttp 5.5.1, kotlinx.serialization 1.9.0 (Retrofit converter) |
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
 | Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11, Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests) |
 | Code coverage | JaCoCo 0.8.14 |
 
-> Networking, image loading and navigation libraries will be listed here once they are added.
+> Image loading and navigation libraries will be listed here once they are added.
 
 ---
 
@@ -131,7 +132,16 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 | Data | `data/` | Repository implementations, network |
 | DI | `di/` | Hilt modules that bind the layers together |
 
-> The `domain` and `data` packages are created once they get their first code (photo search). `di` holds `DispatcherProvider` so far.
+> `data` holds the Flickr API client so far. The `domain` package is created once it gets its first code. `di` holds `DispatcherProvider` and `NetworkModule`.
+
+### Networking
+
+`data/remote` holds the Flickr API client:
+
+- **`FlickrApi`**: a Retrofit interface with one call, `getPublicPhotos(tags)`. The fixed `format=json&nojsoncallback=1` parameters are part of the path, and `tags` is added as a query parameter.
+- **DTOs** (`data/remote/dto`): `@Serializable` classes that declare only the fields the app uses (`title`, `link`, `media.m`). The parser skips the rest (`ignoreUnknownKeys`).
+- **`FlickrApiFactory`**: builds `FlickrApi` from an `OkHttpClient` and a base URL (`https://api.flickr.com/` by default). It lives outside the Hilt module, so tests can use exactly the same Retrofit and JSON setup against a mock server.
+- **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` and `FlickrApi`.
 
 ### Coroutine dispatchers
 
@@ -176,7 +186,9 @@ FlickrRecruitmentTask/
 │       │   ├── java/pl/marcin/malocha/flickrrecruitmenttask/
 │       │   │   ├── FlickrApp.kt             # @HiltAndroidApp Application
 │       │   │   ├── MainActivity.kt          # @AndroidEntryPoint, Compose host
-│       │   │   ├── di/                      # Hilt modules, DispatcherProvider
+│       │   │   ├── data/
+│       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, DTOs
+│       │   │   ├── di/                      # Hilt modules (dispatchers, network), DispatcherProvider
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
 │       │   │       ├── search/              # Tag search: contract, ViewModel, screen
@@ -351,6 +363,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 11 | **JaCoCo** with two custom tasks (`jacocoTestReport`, `jacocoFullTestReport`) and an exclude list | The plain JaCoCo setup works with AGP 9 without extra plugins. One task works without a device, the other merges UI test coverage. Excluding generated code, entry points, DI wiring and previews keeps the coverage number meaningful. Previews are excluded with an annotation, so they can stay next to their screen. |
 | 12 | Screens are split into a public stateful **`XxxScreen`** and an `internal` stateless **`XxxScreenLayout`**; UI tests cover the whole `XxxScreen` with a real ViewModel | The screen is one unit, so one test file checks it end to end, including hiding the keyboard. `Route` is kept for navigation. The layout is `internal`, not `private`, so screenshot tests can render any state without a ViewModel. |
 | 13 | **GitHub Actions** CI with a `feature/* → develop → main` flow and protected `develop`/`main` | Every change is built, linted and tested before it reaches `develop`, and `main` always holds a working app. GitHub Actions is built into the repository, so no external CI service is needed. |
+| 14 | **Retrofit** + **OkHttp** + **kotlinx.serialization** for the Flickr feed; kotlinx.serialization stays on 1.9.0 | The standard, well-known networking stack. Retrofit 3 ships a kotlinx.serialization converter, so no reflection-based parser is needed. 1.9.0 is the newest version built for Kotlin 2.2 (1.10+ needs Kotlin 2.3+). |
 
 ---
 
@@ -374,6 +387,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Screenshot tests: Paparazzi setup, the `snapshotLightAndDark` helper and `SearchScreenScreenshotTest`
 - Code coverage: JaCoCo setup with the `jacocoTestReport` and `jacocoFullTestReport` tasks, the exclude list and the `@ExcludeFromJacocoGeneratedReport` annotation for previews
 - CI/CD: the GitHub Actions workflows and the branching flow
+- Networking: the Retrofit/OkHttp/kotlinx.serialization setup, `FlickrApi` and its DTOs
 
 ### How it is used
 
