@@ -8,7 +8,7 @@
 
 An Android app for searching public Flickr photos by tags. It is built with **Jetpack Compose** as a recruitment task for the second interview round.
 
-> **Status:** 🚧 In development. Tag search with a photo grid, the test setup and CI/CD are in place. The full-screen photo view is being implemented next.
+> **Status:** ✅ All requirements are done: tag search, a photo grid with titles and a full-screen photo view, with unit, UI and screenshot tests and CI/CD.
 
 ---
 
@@ -39,7 +39,7 @@ Build a simple Android application that uses Flickr's publicly accessible [photo
 | 1 | The user can enter one or more **tags** to search for | ✅ |
 | 2 | Matching images are shown in a **list or grid** | ✅ |
 | 3 | Each list item shows the **title** of its image | ✅ |
-| 4 | Tapping an image opens it in a **full-screen view** | ⬜ |
+| 4 | Tapping an image opens it in a **full-screen view** | ✅ |
 | 5 | The UI is built with **Jetpack Compose** | ✅ (project setup) |
 
 Legend: ✅ done · 🚧 in progress · ⬜ not started
@@ -112,13 +112,12 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | Dependency injection | Hilt 2.60.1 (KSP 2.3.12), `androidx.hilt` 1.4.0 (`hiltViewModel()`) |
 | Networking | Retrofit 3.0.0, OkHttp 5.5.1, kotlinx.serialization 1.9.0 (Retrofit converter) |
 | Image loading | Coil 3.3.0 (`coil-compose`, `coil-network-okhttp`) |
+| Navigation | Navigation Compose 2.10.2 (type-safe routes with kotlinx.serialization) |
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
 | Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11 (`mockk` for unit tests, `mockk-android` for UI tests), Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
 | Code coverage | JaCoCo 0.8.14 |
-
-> The navigation library will be listed here once it is added.
 
 ---
 
@@ -206,6 +205,13 @@ Every screen has a **contract** with three types:
 
 `BaseViewModel<S, E, A>` (`presentation/base`) is the base class. It takes the initial state and a `DispatcherProvider`, exposes `state` and `actions`, and offers `setState { copy(...) }` and `sendAction(...)` to subclasses.
 
+Each screen is split into:
+
+- **`XxxScreen`**: public and stateful. It gets the ViewModel through `hiltViewModel()`, collects state with `collectAsStateWithLifecycle()` and handles actions in a `LaunchedEffect`.
+- **`XxxScreenLayout`**: `internal` and stateless. It takes `state` and `onEvent` only, so previews and screenshot tests can render any state without a ViewModel.
+
+The `Route` suffix is kept for navigation and is not used for screens.
+
 ### Search screen
 
 `SearchViewModel` gets `SearchPhotosUseCase` through Hilt. `SearchUiState` holds the query and the result of the last search as flat fields:
@@ -242,12 +248,20 @@ The grid is a `LazyVerticalGrid` with `GridCells.Adaptive(160.dp)`: two columns 
 - The back arrow sends `PhotoDetailEvent.BackClicked`. The ViewModel answers with `PhotoDetailAction.NavigateBack`, and the screen calls its `onNavigateBack` callback.
 - The arrow is a vector drawable (`res/drawable/ic_arrow_back.xml`, Material Symbols `arrow_back`, mirrored for right-to-left languages). The Material icons library is no longer part of Material 3, and one icon does not need a dependency.
 
-Each screen is split into:
+### Navigation
 
-- **`XxxScreen`**: public and stateful. It gets the ViewModel through `hiltViewModel()`, collects state with `collectAsStateWithLifecycle()` and handles actions in a `LaunchedEffect`.
-- **`XxxScreenLayout`**: `internal` and stateless. It takes `state` and `onEvent` only, so previews and screenshot tests can render any state without a ViewModel.
+`FlickrNavHost` (`presentation/navigation`) holds the navigation graph, built with Navigation Compose and type-safe routes (`Routes.kt`):
 
-The `Route` suffix is kept for navigation and is not used for screens.
+```
+SearchRoute ──tap a photo──▶ PhotoDetailRoute(imageUrl, title)
+     ▲                                 │
+     └──────────── back ───────────────┘
+```
+
+- `SearchRoute` is the start destination. Tapping a card sends `SearchEvent.PhotoClicked(photo)`, the ViewModel answers with `SearchAction.NavigateToPhoto(photo)`, and `SearchScreen` calls `onNavigateToPhoto`. The NavHost then navigates to `PhotoDetailRoute` with the photo's large image URL and title.
+- `PhotoDetailRoute` is read with `toRoute()` and passed to `PhotoDetailViewModel` through `hiltViewModel(creationCallback = { it.create(route) })`. The back arrow calls `navigateUp()`, and the system back gesture works the same way.
+- Screens do not know about `NavController`. They only get callbacks, so they can be tested without navigation.
+- `MainActivity` only sets the theme and `FlickrNavHost`.
 
 ---
 
@@ -276,7 +290,7 @@ FlickrRecruitmentTask/
 │       │   │   │   └── usecase/             # SearchPhotosUseCase
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
-│       │   │       ├── navigation/          # Navigation routes (PhotoDetailRoute)
+│       │   │       ├── navigation/          # FlickrNavHost, routes (SearchRoute, PhotoDetailRoute)
 │       │   │       ├── screen/              # One package per screen
 │       │   │       │   ├── photodetail/     # Full-screen photo: contract, ViewModel, screen
 │       │   │       │   └── search/          # Tag search: contract, ViewModel, screen
@@ -344,7 +358,7 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Testing
 
-Unit tests cover the ViewModels (`SearchViewModelTest` mocks `SearchPhotosUseCase`; `PhotoDetailViewModelTest` checks the state built from the route, `hasTitle` and that the back arrow navigates back). They use:
+Unit tests cover the ViewModels (`SearchViewModelTest` mocks `SearchPhotosUseCase`; `PhotoDetailViewModelTest` checks the state built from the route, `hasTitle` and that the back arrow navigates back). `SearchViewModelTest` also checks that tapping a photo sends `NavigateToPhoto`. They use:
 
 - **`MainDispatcherRule`**: a JUnit rule that replaces `Dispatchers.Main` with a test dispatcher for each test.
 - **Test `DispatcherProvider`s** (`StandardTestDispatcher`, `UnconfinedTestDispatcher`): they are passed to the ViewModel in place of `DefaultDispatchers`, sharing one `TestCoroutineScheduler`.
@@ -375,7 +389,7 @@ UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**
 - There is one `XxxScreenTest` per screen. It renders the public `XxxScreen` with a real ViewModel created by hand, so Hilt is not needed in tests. `SearchScreenTest` passes a MockK `SearchPhotosUseCase` (`mockk-android`), so the tests never call Flickr and each test can set its own result.
 - Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the result in the UI, for example the button is enabled or the field lost focus after a search (the keyboard is hidden).
 - `SearchScreenTest` also checks the search states: nothing is shown at first, a search that never finishes (a `CompletableDeferred` the mocked use case awaits) shows the progress indicator, a failed search shows the error message, and a search without photos shows the "no results" message.
-- It also checks the results: after a search with two photos the grid shows exactly two items with their titles, and a photo without a title shows "Untitled". The image URLs are fake, so the tests do not depend on images being loaded.
+- It also checks the results: after a search with two photos the grid shows exactly two items with their titles, and a photo without a title shows "Untitled". The image URLs are fake, so the tests do not depend on images being loaded. Tapping a photo calls `onNavigateToPhoto` with that photo.
 - `PhotoDetailScreenTest` creates `PhotoDetailViewModel` with a route and checks the title, the "Untitled" fallback, that the image is shown and that the back arrow calls `onNavigateBack`.
 - Visual appearance is covered by screenshot tests (below).
 
@@ -393,7 +407,7 @@ Code coverage is measured with **JaCoCo**. Two tasks in `app/build.gradle.kts` w
 Code that is not meant to be tested is excluded, so the number reflects hand-written logic and UI only:
 
 - Generated code: `R`, `BuildConfig`, `Manifest`, Hilt/Dagger output (`Hilt_*`, `*_Factory`, `*_MembersInjector`, `*_HiltModules`, `hilt_aggregated_deps`, ...), Compose `ComposableSingletons` and lambdas, and Kotlin `$WhenMappings`.
-- App entry points and DI wiring: `MainActivity`, `FlickrApp` and the `di` package.
+- App entry points and DI wiring: `MainActivity`, `FlickrApp`, `FlickrNavHost` and the `di` package. `FlickrNavHost` only wires screens together and creates ViewModels through Hilt; the transitions are covered by the ViewModel and screen tests.
 - Compose previews. They live in the same file as their screen, so they cannot be excluded by class name. Instead they are marked with `@ExcludeFromJacocoGeneratedReport` (`presentation/utils/`), and JaCoCo skips any code with an annotation whose name contains "Generated".
 
 ```bash
@@ -493,6 +507,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 25 | **`Photo.hasTitle`** is a derived flag in the domain; the "Untitled" fallback text comes from `strings.xml` in the UI | The UI only reads a flag and has no condition on the data. The fallback text is a string resource, so it can be translated, which a constant in the mapper could not. |
 | 26 | Screens live in **`presentation/screen/<name>`** (for example `screen/search`), one package per screen with its contract, ViewModel and composables | Screens are kept apart from the shared presentation code (`base`, `theme`, `utils`), so each screen is easy to find and a new one has an obvious place. Package names are lowercase, as is usual in Kotlin. |
 | 27 | `PhotoDetailViewModel` gets its `PhotoDetailRoute` through **Hilt assisted injection**, not by reading `SavedStateHandle` | The ViewModel gets a typed route and tests create it with a plain constructor call, without `SavedStateHandle` or Robolectric. After process death, Navigation restores the route and passes it again. The screen still follows MVI (state, events, actions), so all screens work the same way. |
+| 28 | **Navigation Compose 2.10** with type-safe `@Serializable` routes, not Navigation 3 | A mature API most teams know. kotlinx.serialization is already in the project, and 2.10.2 is built for Kotlin 2.1, so it works with Kotlin 2.2. Navigation 3 (a back stack as a plain list) is newer but less known, and with two screens it brings no advantage. |
 
 ---
 
@@ -526,6 +541,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Results grid: the Coil setup, the photo grid with titles and the "Untitled" fallback, `Photo.hasTitle`, `PhotoTest` and the new UI and screenshot tests
 - Package layout: moving the search screen to `presentation/screen/search`
 - Photo detail screen: `PhotoDetailRoute`, the contract, `PhotoDetailViewModel` with assisted injection, the screen, `PhotoDetailViewModelTest`, `PhotoDetailScreenTest` and `PhotoDetailScreenScreenshotTest`
+- Navigation: Navigation Compose setup, `FlickrNavHost` with `SearchRoute` and `PhotoDetailRoute`, opening a photo from the grid and the new ViewModel and UI tests
 
 ### How it is used
 

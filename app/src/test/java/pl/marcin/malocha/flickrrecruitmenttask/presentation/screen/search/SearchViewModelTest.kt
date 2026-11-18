@@ -115,6 +115,15 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun eventsTest_PhotoClicked_NavigatesToPhoto() = runTest(scheduler) {
+        val actions = collectToList(viewModel.actions)
+
+        viewModel.onEvent(SearchEvent.PhotoClicked(photo("1")))
+
+        assertThat(actions).containsExactly(SearchAction.NavigateToPhoto(photo("1")))
+    }
+
+    @Test
     fun searchTest_InProgress_IsLoading() = runTest(scheduler) {
         val result = CompletableDeferred<Result<List<Photo>>>()
         coEvery { searchPhotos(any()) } coAnswers { result.await() }

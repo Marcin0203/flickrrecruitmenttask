@@ -21,6 +21,7 @@ class SearchViewModel @Inject constructor(
         when (event) {
             is SearchEvent.QueryChanged -> setState { copy(query = event.query) }
             SearchEvent.SearchClicked -> onSearchClicked()
+            is SearchEvent.PhotoClicked -> sendAction(SearchAction.NavigateToPhoto(event.photo))
         }
     }
 

@@ -2,6 +2,10 @@ package pl.marcin.malocha.flickrrecruitmenttask.presentation.navigation
 
 import kotlinx.serialization.Serializable
 
+/** Tag search with the results grid, the start destination. */
+@Serializable
+data object SearchRoute
+
 /**
  * Full-screen view of one photo.
  *

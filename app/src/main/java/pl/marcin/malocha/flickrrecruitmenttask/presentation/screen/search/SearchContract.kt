@@ -27,8 +27,10 @@ data class SearchUiState(
 sealed interface SearchEvent {
     data class QueryChanged(val query: String) : SearchEvent
     data object SearchClicked : SearchEvent
+    data class PhotoClicked(val photo: Photo) : SearchEvent
 }
 
 sealed interface SearchAction {
     data object HideKeyboard : SearchAction
+    data class NavigateToPhoto(val photo: Photo) : SearchAction
 }

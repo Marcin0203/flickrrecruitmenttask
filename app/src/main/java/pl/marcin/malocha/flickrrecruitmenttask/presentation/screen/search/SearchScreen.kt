@@ -55,6 +55,7 @@ object SearchScreenTestTags {
 
 @Composable
 fun SearchScreen(
+    onNavigateToPhoto: (Photo) -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -68,6 +69,7 @@ fun SearchScreen(
                     keyboardController?.hide()
                     focusManager.clearFocus()
                 }
+                is SearchAction.NavigateToPhoto -> onNavigateToPhoto(action.photo)
             }
         }
     }
@@ -130,7 +132,10 @@ internal fun SearchScreenLayout(
                         text = stringResource(R.string.search_no_results),
                         modifier = Modifier.testTag(SearchScreenTestTags.NO_RESULTS_MESSAGE),
                     )
-                    else -> PhotoGrid(photos = state.photos)
+                    else -> PhotoGrid(
+                        photos = state.photos,
+                        onPhotoClick = { onEvent(SearchEvent.PhotoClicked(it)) },
+                    )
                 }
             }
         }
@@ -140,6 +145,7 @@ internal fun SearchScreenLayout(
 @Composable
 private fun PhotoGrid(
     photos: List<Photo>,
+    onPhotoClick: (Photo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
@@ -151,7 +157,7 @@ private fun PhotoGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(photos, key = { it.id }) { photo ->
-            PhotoGridItem(photo = photo)
+            PhotoGridItem(photo = photo, onClick = { onPhotoClick(photo) })
         }
     }
 }
@@ -159,10 +165,14 @@ private fun PhotoGrid(
 @Composable
 private fun PhotoGridItem(
     photo: Photo,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val title = if (photo.hasTitle) photo.title else stringResource(R.string.photo_untitled)
-    Card(modifier = modifier.testTag(SearchScreenTestTags.PHOTO_ITEM)) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.testTag(SearchScreenTestTags.PHOTO_ITEM),
+    ) {
         AsyncImage(
             model = photo.thumbnailUrl,
             contentDescription = title,

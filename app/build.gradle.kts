@@ -67,6 +67,7 @@ val jacocoExcludes = listOf(
     "android/**/*.*",
     // App entry points and DI wiring
     "**/MainActivity.*",
+    "**/FlickrNavHost*.*",
     "**/FlickrApp.*",
     "**/di/**",
     // Hilt / Dagger
@@ -146,6 +147,7 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.kotlinx.serialization)
     implementation(libs.okhttp)
+    implementation(libs.androidx.navigation.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.kotlinx.serialization.json)
