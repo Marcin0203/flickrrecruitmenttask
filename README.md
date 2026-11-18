@@ -132,7 +132,7 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 | Data | `data/` | Repository implementations, data sources, network |
 | DI | `di/` | Hilt modules that bind the layers together |
 
-> `data` holds the Flickr API client, the remote data source, the DTO → `Photo` mapper and `PhotoRepositoryImpl` so far. `domain` holds the `Photo` model and the `PhotoRepository` interface so far. `di` holds `DispatcherProvider`, `NetworkModule`, `DataSourceModule` and `RepositoryModule`.
+> `data` holds the Flickr API client, the remote data source, the DTO → `Photo` mapper and `PhotoRepositoryImpl` so far. `domain` holds the `Photo` model, the `PhotoRepository` interface and `SearchPhotosUseCase` so far. `di` holds `DispatcherProvider`, `NetworkModule`, `DataSourceModule` and `RepositoryModule`.
 
 ### Networking
 
@@ -172,6 +172,17 @@ FlickrApi ──▶ PhotoRemoteDataSource ──▶ PhotoRepository ──▶ re
 - It does not switch dispatchers, because the data source already runs the call on `io`.
 
 `RepositoryModule` (`di`) binds `PhotoRepositoryImpl` to `PhotoRepository` as a singleton.
+
+### Use case
+
+`domain/usecase/SearchPhotosUseCase` is what the presentation layer calls to search: `suspend operator fun invoke(query: String): Result<List<Photo>>`. It takes the text from the search field as it is and turns it into tags:
+
+- It splits the query on commas and whitespace, so `cat, dog`, `cat dog` and `cat,dog` all give `["cat", "dog"]`.
+- It skips empty tags (for example in `cat,,dog`) and passes each tag only once.
+- If no tags are left (for example `" , "`), it returns an empty list and does not call the repository. Without tags the feed would return the most recent photos of any kind, which is not a search result.
+- Otherwise it returns the repository's `Result` unchanged.
+
+It has an `@Inject` constructor, so Hilt creates it without a module.
 
 ### Coroutine dispatchers
 
@@ -224,7 +235,8 @@ FlickrRecruitmentTask/
 │       │   │   ├── di/                      # Hilt modules (dispatchers, network, data sources, repositories), DispatcherProvider
 │       │   │   ├── domain/
 │       │   │   │   ├── model/               # Photo (domain model)
-│       │   │   │   └── repository/          # PhotoRepository (interface)
+│       │   │   │   ├── repository/          # PhotoRepository (interface)
+│       │   │   │   └── usecase/             # SearchPhotosUseCase
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
 │       │   │       ├── search/              # Tag search: contract, ViewModel, screen
@@ -237,6 +249,7 @@ FlickrRecruitmentTask/
 │       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer), datasource/PhotoRemoteDataSourceImplTest
 │       │   │   ├── data/repository/         # PhotoRepositoryImplTest
 │       │   │   ├── di/providers/            # Test DispatcherProvider implementations
+│       │   │   ├── domain/usecase/          # SearchPhotosUseCaseTest
 │       │   │   ├── rules/                   # MainDispatcherRule
 │       │   │   ├── utils/                   # Test helpers (collectToList, snapshotLightAndDark)
 │       │   │   └── presentation/search/     # SearchViewModelTest, SearchScreenScreenshotTest
@@ -306,6 +319,8 @@ API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory` agains
 Data source tests (`PhotoRemoteDataSourceImplTest`) use a MockK `FlickrApi` and a test `DispatcherProvider`. They check that the tags are joined with `,` (and that a single tag is passed as it is), that the API response is returned unchanged and that an API error propagates to the caller.
 
 Repository tests (`PhotoRepositoryImplTest`) use a MockK `PhotoRemoteDataSource`. They check that the tags are passed to the data source, that the feed is mapped to `Photo`s, that an empty feed gives an empty list, that a data source error becomes `Result.failure` and that `CancellationException` is rethrown, not wrapped.
+
+Use case tests (`SearchPhotosUseCaseTest`) use a MockK `PhotoRepository`. They check how the query is split into tags (commas, spaces, empty tags, duplicates), that a query without tags returns an empty list without calling the repository, and that the repository's success and failure are returned unchanged.
 
 Mapper tests (`PhotoMapperTest`) check that every DTO field ends up in the right `Photo` field, including an empty title, the `_m` → `_b` swap (only right before the file extension, for any extension) and a URL without the `_m` suffix, which is kept as it is.
 
@@ -419,6 +434,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 15 | The full-screen view uses the **`_b` (1024 px)** image, built from the feed's `_m` URL in the mapper | The feed only returns the small image. `_b` is sharp on phone screens and still quick to load. Building the URL in the mapper keeps the UI unaware of Flickr's URL format. |
 | 16 | A **remote data source** (`PhotoRemoteDataSource`) sits between `FlickrApi` and the repository; there is no local data source | Only the data source knows the Flickr request format and does the IO switch. The repository will decide which source to use and map to the domain, so a cache can be added later without touching the network code. No local source is added now, because the task needs no caching. |
 | 17 | `PhotoRepository` is an interface in `domain`, implemented in `data`; `searchPhotos` returns **`Result<List<Photo>>`** and rethrows `CancellationException` | The domain does not depend on the data layer, and the presentation layer can be tested with a fake repository. `Result` makes failure part of the contract, so the presentation layer does not catch Retrofit/IO exceptions. Cancellation is rethrown so structured concurrency keeps working, which `runCatching` would break. |
+| 18 | `SearchPhotosUseCase` takes the **raw query** and splits it into tags; a query without tags returns an empty list without a network call | Turning user input into tags is app logic, so it lives in the pure-Kotlin domain and is unit tested without Android. The ViewModel stays thin, and the use case is more than a pass-through to the repository. Skipping the call avoids showing unrelated recent photos as results. |
 
 ---
 
@@ -446,6 +462,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Domain layer: the `Photo` model, the DTO → `Photo` mapper and `PhotoMapperTest`
 - Remote data source: `PhotoRemoteDataSource`, its Hilt binding and `PhotoRemoteDataSourceImplTest`
 - Repository: the `PhotoRepository` interface, `PhotoRepositoryImpl`, its Hilt binding and `PhotoRepositoryImplTest`
+- Use case: `SearchPhotosUseCase` (splitting the query into tags) and `SearchPhotosUseCaseTest`
 
 ### How it is used
 
