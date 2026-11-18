@@ -129,10 +129,10 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 |-------|---------|----------------|
 | Presentation | `presentation/` | Compose screens, ViewModels, MVI contracts, theme |
 | Domain | `domain/` | Use cases, models and repository interfaces (pure Kotlin) |
-| Data | `data/` | Repository implementations, network |
+| Data | `data/` | Repository implementations, data sources, network |
 | DI | `di/` | Hilt modules that bind the layers together |
 
-> `data` holds the Flickr API client and the DTO → `Photo` mapper so far. `domain` holds the `Photo` model so far. `di` holds `DispatcherProvider` and `NetworkModule`.
+> `data` holds the Flickr API client, the remote data source and the DTO → `Photo` mapper so far. `domain` holds the `Photo` model so far. `di` holds `DispatcherProvider`, `NetworkModule` and `DataSourceModule`.
 
 ### Networking
 
@@ -142,6 +142,22 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 - **DTOs** (`data/remote/dto`): `@Serializable` classes that declare only the fields the app uses (`title`, `link`, `media.m`). The parser skips the rest (`ignoreUnknownKeys`).
 - **`FlickrApiFactory`**: builds `FlickrApi` from an `OkHttpClient` and a base URL (`https://api.flickr.com/` by default). It lives outside the Hilt module, so tests use exactly the same Retrofit and JSON setup against a mock server.
 - **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` and `FlickrApi`.
+
+### Remote data source
+
+The data layer is split into the API, data sources and a repository:
+
+```
+FlickrApi ──▶ PhotoRemoteDataSource ──▶ repository (next step) ──▶ domain
+```
+
+`data/remote/datasource/PhotoRemoteDataSource` is the only class that talks to `FlickrApi`. `PhotoRemoteDataSourceImpl`:
+
+- takes the tags as a `List<String>` and joins them with `,`, because the feed expects one comma-separated `tags` parameter. The Flickr request format stays in one place.
+- runs the call on `DispatcherProvider.io`.
+- returns the raw `PublicPhotosFeedDto` and lets errors (no network, HTTP errors) propagate. Mapping to `Photo` and error handling are the repository's job.
+
+`DataSourceModule` (`di`) binds `PhotoRemoteDataSourceImpl` to `PhotoRemoteDataSource` as a singleton. There is no local data source, because the task needs no caching. A local source could be added later as another dependency of the repository, without changing the remote one.
 
 `data/mapper/PhotoMapper.kt` maps the DTOs to the domain `Photo`: the photo's `link` becomes its `id`, `media.m` is the thumbnail, and the full-size URL is the same URL with the `_m` size suffix swapped for `_b` (1024 px). A URL without the `_m` suffix is kept as it is.
 
@@ -191,7 +207,8 @@ FlickrRecruitmentTask/
 │       │   │   ├── data/
 │       │   │   │   ├── mapper/              # DTO → domain model mapping
 │       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, DTOs
-│       │   │   ├── di/                      # Hilt modules (dispatchers, network), DispatcherProvider
+│       │   │   │       └── datasource/      # PhotoRemoteDataSource
+│       │   │   ├── di/                      # Hilt modules (dispatchers, network, data sources), DispatcherProvider
 │       │   │   ├── domain/
 │       │   │   │   └── model/               # Photo (domain model)
 │       │   │   └── presentation/
@@ -203,7 +220,7 @@ FlickrRecruitmentTask/
 │       ├── test/                            # Local unit tests (JVM)
 │       │   ├── java/.../flickrrecruitmenttask/
 │       │   │   ├── data/mapper/             # PhotoMapperTest
-│       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer)
+│       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer), datasource/PhotoRemoteDataSourceImplTest
 │       │   │   ├── di/providers/            # Test DispatcherProvider implementations
 │       │   │   ├── rules/                   # MainDispatcherRule
 │       │   │   ├── utils/                   # Test helpers (collectToList, snapshotLightAndDark)
@@ -270,6 +287,8 @@ API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory` agains
 - The request: the path, the fixed `format` and `nojsoncallback` parameters and the `tags` parameter.
 - Parsing: JSON fixtures in `src/test/resources/feed/` have the same shape as the real feed, including unknown fields, escaped slashes and an empty title. One fixture has no items.
 - Errors: an HTTP error response ends in a Retrofit `HttpException`.
+
+Data source tests (`PhotoRemoteDataSourceImplTest`) use a MockK `FlickrApi` and a test `DispatcherProvider`. They check that the tags are joined with `,` (and that a single tag is passed as it is), that the API response is returned unchanged and that an API error propagates to the caller.
 
 Mapper tests (`PhotoMapperTest`) check that every DTO field ends up in the right `Photo` field, including an empty title, the `_m` → `_b` swap (only right before the file extension, for any extension) and a URL without the `_m` suffix, which is kept as it is.
 
@@ -381,6 +400,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 13 | **GitHub Actions** CI with a `feature/* → develop → main` flow and protected `develop`/`main` | Every change is built, linted and tested before it reaches `develop`, and `main` always holds a working app. GitHub Actions is built into the repository, so no external CI service is needed. |
 | 14 | **Retrofit** + **OkHttp** + **kotlinx.serialization** for the Flickr feed; kotlinx.serialization stays on 1.9.0 | The standard, well-known networking stack. Retrofit 3 ships a kotlinx.serialization converter, so no reflection-based parser is needed. 1.9.0 is the newest version built for Kotlin 2.2 (1.10+ needs Kotlin 2.3+). |
 | 15 | The full-screen view uses the **`_b` (1024 px)** image, built from the feed's `_m` URL in the mapper | The feed only returns the small image. `_b` is sharp on phone screens and still quick to load. Building the URL in the mapper keeps the UI unaware of Flickr's URL format. |
+| 16 | A **remote data source** (`PhotoRemoteDataSource`) sits between `FlickrApi` and the repository; there is no local data source | Only the data source knows the Flickr request format and does the IO switch. The repository will decide which source to use and map to the domain, so a cache can be added later without touching the network code. No local source is added now, because the task needs no caching. |
 
 ---
 
@@ -406,6 +426,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - CI/CD: the GitHub Actions workflows and the branching flow
 - Networking: the Retrofit/OkHttp/kotlinx.serialization setup, `FlickrApi`, its DTOs and `FlickrApiTest` with MockWebServer
 - Domain layer: the `Photo` model, the DTO → `Photo` mapper and `PhotoMapperTest`
+- Remote data source: `PhotoRemoteDataSource`, its Hilt binding and `PhotoRemoteDataSourceImplTest`
 
 ### How it is used
 
