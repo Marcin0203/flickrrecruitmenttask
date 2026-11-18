@@ -4,6 +4,7 @@ import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import org.junit.Rule
 import org.junit.Test
+import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.utils.snapshotLightAndDark
 
 /**
@@ -43,4 +44,28 @@ class SearchScreenScreenshotTest {
     fun screenshotTest_NoResults() = paparazzi.snapshotLightAndDark {
         SearchScreenLayout(state = SearchUiState(query = "cat, dog", hasSearched = true), onEvent = {})
     }
+
+    @Test
+    fun screenshotTest_Results() = paparazzi.snapshotLightAndDark {
+        SearchScreenLayout(
+            state = SearchUiState(
+                query = "cat, dog",
+                photos = listOf(
+                    photo(id = "1", title = "Sleepy cat"),
+                    photo(id = "2", title = ""),
+                    photo(id = "3", title = "A dog running on the beach on a sunny afternoon in summer"),
+                    photo(id = "4", title = "Cat and dog"),
+                ),
+                hasSearched = true,
+            ),
+            onEvent = {},
+        )
+    }
+
+    private fun photo(id: String, title: String) = Photo(
+        id = "https://www.flickr.com/photos/user/$id/",
+        title = title,
+        thumbnailUrl = "https://live.staticflickr.com/65535/${id}_abc_m.jpg",
+        fullSizeUrl = "https://live.staticflickr.com/65535/${id}_abc_b.jpg",
+    )
 }

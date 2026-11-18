@@ -5,11 +5,16 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotFocused
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mockk.coEvery
@@ -40,6 +45,15 @@ class SearchScreenTest {
     private val loadingIndicator get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.LOADING_INDICATOR)
     private val errorMessage get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.ERROR_MESSAGE)
     private val noResultsMessage get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.NO_RESULTS_MESSAGE)
+    private val resultsGrid get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.RESULTS_GRID)
+    private val photoItems get() = composeTestRule.onAllNodesWithTag(SearchScreenTestTags.PHOTO_ITEM)
+
+    private fun photo(id: String, title: String) = Photo(
+        id = "https://www.flickr.com/photos/user/$id/",
+        title = title,
+        thumbnailUrl = "https://live.staticflickr.com/65535/${id}_abc_m.jpg",
+        fullSizeUrl = "https://live.staticflickr.com/65535/${id}_abc_b.jpg",
+    )
 
     private val searchPhotos: SearchPhotosUseCase = mockk()
 
@@ -98,6 +112,35 @@ class SearchScreenTest {
 
         noResultsMessage.assertIsDisplayed()
         errorMessage.assertDoesNotExist()
+    }
+
+    @Test
+    fun stateTest_SearchWithResults_ShowsPhotosWithTitles() {
+        coEvery { searchPhotos(any()) } returns Result.success(
+            listOf(photo(id = "1", title = "Sleepy cat"), photo(id = "2", title = "Happy dog")),
+        )
+
+        queryField.performTextInput("cat")
+        searchButton.performClick()
+
+        resultsGrid.assertIsDisplayed()
+        photoItems.assertCountEquals(2)
+        // On a narrow screen the grid has one column, so the second photo can be below the bottom edge.
+        resultsGrid.performScrollToNode(hasText("Sleepy cat"))
+        composeTestRule.onNodeWithText("Sleepy cat").assertIsDisplayed()
+        resultsGrid.performScrollToNode(hasText("Happy dog"))
+        composeTestRule.onNodeWithText("Happy dog").assertIsDisplayed()
+        noResultsMessage.assertDoesNotExist()
+    }
+
+    @Test
+    fun stateTest_PhotoWithoutTitle_ShowsFallbackTitle() {
+        coEvery { searchPhotos(any()) } returns Result.success(listOf(photo(id = "1", title = "")))
+
+        queryField.performTextInput("cat")
+        searchButton.performClick()
+
+        composeTestRule.onNodeWithText("Untitled").assertIsDisplayed()
     }
 
     @Test
