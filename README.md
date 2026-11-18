@@ -8,7 +8,7 @@
 
 An Android app for searching public Flickr photos by tags. It is built with **Jetpack Compose** as a recruitment task for the second interview round.
 
-> **Status:** 🚧 Early development. The project is a fresh Android Studio Compose template, and the features below are being implemented step by step.
+> **Status:** 🚧 In development. The architecture, the tag input screen, the test setup and CI/CD are in place. Photo search and the remaining requirements below are being implemented step by step.
 
 ---
 
@@ -167,6 +167,7 @@ The `Route` suffix is kept for navigation and is not used for screens.
 
 ```
 FlickrRecruitmentTask/
+├── .github/workflows/                       # CI (ci.yml) and release (release.yml) workflows
 ├── app/
 │   ├── build.gradle.kts
 │   └── src/
@@ -179,7 +180,8 @@ FlickrRecruitmentTask/
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
 │       │   │       ├── search/              # Tag search: contract, ViewModel, screen
-│       │   │       └── theme/               # Material 3 theme (Color, Theme, Type)
+│       │   │       ├── theme/               # Material 3 theme (Color, Theme, Type)
+│       │   │       └── utils/               # @ExcludeFromJacocoGeneratedReport (previews)
 │       │   └── res/                         # Resources (icons, strings, themes)
 │       ├── test/                            # Local unit tests (JVM)
 │       │   ├── java/.../flickrrecruitmenttask/
