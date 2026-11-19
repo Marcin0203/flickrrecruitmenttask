@@ -16,7 +16,8 @@ class SearchPhotosUseCase @Inject constructor(
      * Splits [query] into tags and searches photos matching all of them.
      *
      * @param query text from the search field, for example `"cat, dog"`.
-     * @return the matching photos, an empty list if [query] has no tags, or a failure if they could not be loaded.
+     * @return the matching photos, an empty list if [query] has no tags, or a failure with a
+     * `DomainError` if they could not be loaded.
      */
     suspend operator fun invoke(query: String): Result<List<Photo>> {
         val tags = query.split(TAG_SEPARATORS)

@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -26,6 +27,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import pl.marcin.malocha.flickrrecruitmenttask.di.providers.DefaultDispatchers
+import pl.marcin.malocha.flickrrecruitmenttask.domain.model.DomainError
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.domain.usecase.SearchPhotosUseCase
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.mapper.toUi
@@ -33,7 +35,6 @@ import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
 import pl.marcin.malocha.flickrrecruitmenttask.rules.FakeImageLoaderRule
 import pl.marcin.malocha.flickrrecruitmenttask.utils.isPresent
-import java.io.IOException
 
 /**
  * Tests the whole [SearchScreen] with a real [SearchViewModel]: state flowing to the UI and handling of one-off actions.
@@ -105,14 +106,35 @@ class SearchScreenTest {
     }
 
     @Test
-    fun stateTest_SearchFailed_ShowsErrorMessage() {
-        coEvery { searchPhotos(any()) } returns Result.failure(IOException("No network"))
+    fun stateTest_ApiError_ShowsApiErrorMessageWithCode() {
+        coEvery { searchPhotos(any()) } returns Result.failure(DomainError.Api(code = 500))
 
         queryField.performTextInput("cat")
         searchButton.performClick()
 
         errorMessage.assertIsDisplayed()
+        errorMessage.assertTextEquals("API error (500). Try again later.")
         loadingIndicator.assertDoesNotExist()
+    }
+
+    @Test
+    fun stateTest_NetworkError_ShowsNetworkErrorMessage() {
+        coEvery { searchPhotos(any()) } returns Result.failure(DomainError.Network)
+
+        queryField.performTextInput("cat")
+        searchButton.performClick()
+
+        errorMessage.assertTextEquals("No connection. Check your network and try again.")
+    }
+
+    @Test
+    fun stateTest_UnknownError_ShowsGenericErrorMessage() {
+        coEvery { searchPhotos(any()) } returns Result.failure(DomainError.Unknown(cause = IllegalStateException()))
+
+        queryField.performTextInput("cat")
+        searchButton.performClick()
+
+        errorMessage.assertTextEquals("Something went wrong. Try again.")
     }
 
     @Test
