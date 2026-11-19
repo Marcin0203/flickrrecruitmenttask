@@ -4,17 +4,15 @@ import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
-import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.dto.FeedPhotoDto
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.dto.FeedPhotoMediaDto
-import retrofit2.HttpException
 
 /**
- * Tests [FlickrApi] built by [FlickrApiFactory] against a [MockWebServer]:
- * the request it sends and how it parses feed responses (fixtures in `src/test/resources/feed`).
+ * Tests [FlickrApi] built by [FlickrApiFactory], with the app's [OkHttpClientFactory] client, against a [MockWebServer]:
+ * the request it sends, how it parses feed responses (fixtures in `src/test/resources/feed`) and HTTP errors.
  */
 class FlickrApiTest {
 
@@ -25,7 +23,7 @@ class FlickrApiTest {
     fun setUp() {
         server = MockWebServer()
         server.start()
-        api = FlickrApiFactory.create(client = OkHttpClient(), baseUrl = server.url("/"))
+        api = FlickrApiFactory.create(client = OkHttpClientFactory.create(isDebug = false), baseUrl = server.url("/"))
     }
 
     @After
@@ -81,13 +79,13 @@ class FlickrApiTest {
     }
 
     @Test
-    fun getPublicPhotosTest_HttpError_ThrowsHttpException() = runTest {
+    fun getPublicPhotosTest_HttpError_ThrowsApiException() = runTest {
         server.enqueue(MockResponse(code = 500))
 
         val exception = runCatching { api.getPublicPhotos(tags = "cat") }.exceptionOrNull()
 
-        assertThat(exception).isInstanceOf(HttpException::class.java)
-        assertThat((exception as HttpException).code()).isEqualTo(500)
+        assertThat(exception).isInstanceOf(ApiException::class.java)
+        assertThat((exception as ApiException).code).isEqualTo(500)
     }
 
     private fun jsonResponse(resourcePath: String) = MockResponse(

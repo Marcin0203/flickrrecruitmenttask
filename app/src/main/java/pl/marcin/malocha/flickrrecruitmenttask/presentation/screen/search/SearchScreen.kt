@@ -37,9 +37,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import pl.marcin.malocha.flickrrecruitmenttask.R
-import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.ErrorUi
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.utils.ExcludeFromJacocoGeneratedReport
 
@@ -51,11 +52,12 @@ object SearchScreenTestTags {
     const val NO_RESULTS_MESSAGE = "search_no_results_message"
     const val RESULTS_GRID = "search_results_grid"
     const val PHOTO_ITEM = "search_photo_item"
+    const val PHOTO_LOADING_INDICATOR = "search_photo_loading_indicator"
 }
 
 @Composable
 fun SearchScreen(
-    onNavigateToPhoto: (Photo) -> Unit,
+    onNavigateToPhoto: (PhotoUi) -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -124,8 +126,8 @@ internal fun SearchScreenLayout(
                     state.isLoading -> CircularProgressIndicator(
                         modifier = Modifier.testTag(SearchScreenTestTags.LOADING_INDICATOR),
                     )
-                    state.isError -> SearchMessage(
-                        text = stringResource(R.string.search_error),
+                    state.error != null -> SearchMessage(
+                        text = errorMessage(state.error),
                         modifier = Modifier.testTag(SearchScreenTestTags.ERROR_MESSAGE),
                     )
                     state.hasNoResults -> SearchMessage(
@@ -144,8 +146,8 @@ internal fun SearchScreenLayout(
 
 @Composable
 private fun PhotoGrid(
-    photos: List<Photo>,
-    onPhotoClick: (Photo) -> Unit,
+    photos: List<PhotoUi>,
+    onPhotoClick: (PhotoUi) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
@@ -164,7 +166,7 @@ private fun PhotoGrid(
 
 @Composable
 private fun PhotoGridItem(
-    photo: Photo,
+    photo: PhotoUi,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -173,15 +175,22 @@ private fun PhotoGridItem(
         onClick = onClick,
         modifier = modifier.testTag(SearchScreenTestTags.PHOTO_ITEM),
     ) {
-        AsyncImage(
+        SubcomposeAsyncImage(
             model = photo.thumbnailUrl,
             contentDescription = title,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                // Visible until the image is loaded.
+                // Visible behind the loading indicator, and stays if the image fails to load.
                 .background(MaterialTheme.colorScheme.secondaryContainer),
             contentScale = ContentScale.Crop,
+            loading = {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.testTag(SearchScreenTestTags.PHOTO_LOADING_INDICATOR),
+                    )
+                }
+            },
         )
         Text(
             text = title,
@@ -193,6 +202,13 @@ private fun PhotoGridItem(
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+@Composable
+private fun errorMessage(error: ErrorUi): String = when (error) {
+    is ErrorUi.Api -> stringResource(R.string.search_error_api, error.code)
+    ErrorUi.Network -> stringResource(R.string.search_error_network)
+    ErrorUi.Unknown -> stringResource(R.string.search_error_unknown)
 }
 
 @Composable
@@ -238,7 +254,7 @@ private fun SearchScreenLoadingPreview() {
 private fun SearchScreenErrorPreview() {
     FlickrRecruitmentTaskTheme {
         SearchScreenLayout(
-            state = SearchUiState(query = "cat, dog", isError = true, hasSearched = true),
+            state = SearchUiState(query = "cat, dog", error = ErrorUi.Api(code = 500), hasSearched = true),
             onEvent = {},
         )
     }
@@ -265,7 +281,7 @@ private fun SearchScreenResultsPreview() {
             state = SearchUiState(
                 query = "cat, dog",
                 photos = List(4) { index ->
-                    Photo(
+                    PhotoUi(
                         id = "photo_$index",
                         title = if (index == 1) "" else "Photo $index",
                         thumbnailUrl = "",

@@ -1,6 +1,7 @@
 package pl.marcin.malocha.flickrrecruitmenttask.data.repository
 
 import pl.marcin.malocha.flickrrecruitmenttask.data.mapper.toDomain
+import pl.marcin.malocha.flickrrecruitmenttask.data.mapper.toDomainError
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.datasource.PhotoRemoteDataSource
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.domain.repository.PhotoRepository
@@ -19,6 +20,6 @@ class PhotoRepositoryImpl @Inject constructor(
             // Cancellation must reach the caller, otherwise a cancelled search would be reported as an error.
             throw e
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(e.toDomainError())
         }
 }

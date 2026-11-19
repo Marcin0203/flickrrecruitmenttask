@@ -110,13 +110,13 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | UI | Jetpack Compose (BOM 2026.02.01), Material 3 |
 | Architecture | MVI on `StateFlow` / `SharedFlow`, AndroidX ViewModel, Lifecycle Compose 2.11.0 (`collectAsStateWithLifecycle`) |
 | Dependency injection | Hilt 2.60.1 (KSP 2.3.12), `androidx.hilt` 1.4.0 (`hiltViewModel()`) |
-| Networking | Retrofit 3.0.0, OkHttp 5.5.1, kotlinx.serialization 1.9.0 (Retrofit converter) |
+| Networking | Retrofit 3.0.0, OkHttp 5.5.1 (with `logging-interceptor` in debug builds), kotlinx.serialization 1.9.0 (Retrofit converter) |
 | Image loading | Coil 3.3.0 (`coil-compose`, `coil-network-okhttp`) |
 | Navigation | Navigation Compose 2.10.2 (type-safe routes with kotlinx.serialization) |
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
-| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11 (`mockk` for unit tests, `mockk-android` for UI tests), Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
+| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11 (`mockk` for unit tests, `mockk-android` for UI tests), Coil `coil-test` 3.3.0 (fake images in UI tests), Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
 | Code coverage | JaCoCo 0.8.14 |
 
 ---
@@ -141,7 +141,9 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 - **`FlickrApi`**: a Retrofit interface with one call, `getPublicPhotos(tags)`. The fixed `format=json&nojsoncallback=1` parameters are part of the path, and `tags` is added as a query parameter.
 - **DTOs** (`data/remote/dto`): `@Serializable` classes that declare only the fields the app uses (`title`, `link`, `media.m`). The parser skips the rest (`ignoreUnknownKeys`).
 - **`FlickrApiFactory`**: builds `FlickrApi` from an `OkHttpClient` and a base URL (`https://api.flickr.com/` by default). It lives outside the Hilt module, so tests use exactly the same Retrofit and JSON setup against a mock server.
-- **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` and `FlickrApi`.
+- **`ApiErrorInterceptor`**: an OkHttp `Interceptor` that turns every HTTP error response (4xx, 5xx) into an `ApiException(code)`. `ApiException` extends `IOException`, because OkHttp expects interceptors to throw only `IOException`s. Because of this interceptor, Retrofit never sees an error response, so its `HttpException` is not used.
+- **`OkHttpClientFactory`**: builds the `OkHttpClient`. `ApiErrorInterceptor` is always added first, so it wraps the logging interceptor and an error response is logged in full before it becomes an exception. In debug builds it adds OkHttp's `HttpLoggingInterceptor` with level `BODY`, so every request and response, with headers and body, is printed to Logcat (filter by the tag `okhttp.OkHttpClient`). Release builds add no logging interceptor, so nothing is logged. Coil uses its own `OkHttpClient`, so image downloads do not show up in these logs.
+- **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` (`OkHttpClientFactory.create(isDebug = BuildConfig.DEBUG)`, with `buildConfig` enabled in Gradle) and `FlickrApi`.
 
 ### Remote data source
 
@@ -167,7 +169,12 @@ FlickrApi ──▶ PhotoRemoteDataSource ──▶ PhotoRepository ──▶ re
 
 - It decides where the photos come from. Today that is only `PhotoRemoteDataSource`.
 - It maps the feed to `Photo`s with `toDomain()`.
-- It returns `Result.success` with the photos, or `Result.failure` with the exception (for example no network or an HTTP error), so callers do not need to know data-layer exception types.
+- It returns `Result.success` with the photos, or `Result.failure` with a **`DomainError`** (`domain/model`), so callers do not need to know data-layer exception types. `Throwable.toDomainError()` (`data/mapper/ErrorMapper.kt`) maps:
+  - `ApiException` → `DomainError.Api(code)`: the API answered with an HTTP error. It is checked first, because `ApiException` is an `IOException`.
+  - any other `IOException` → `DomainError.Network`: the API could not be reached (no connection, timeout).
+  - anything else → `DomainError.Unknown(cause)`, for example a response that could not be parsed.
+
+  `DomainError` is a sealed class that extends `Exception`, so it fits into `Result`. Other kinds of errors, for example business rules, would be new subtypes, and every `when` over them would have to handle them.
 - It rethrows `CancellationException` instead of wrapping it in a failure. Otherwise a cancelled search (for example when the screen is closed) would be reported as an error and coroutine cancellation would break. This is why it uses `try`/`catch` and not `runCatching`, which catches everything.
 - It does not switch dispatchers, because the data source already runs the call on `io`.
 
@@ -219,32 +226,39 @@ The `Route` suffix is kept for navigation and is not used for screens.
 | Field | Meaning |
 |-------|---------|
 | `query` | Text typed into the search field |
-| `photos` | Photos found by the last successful search |
+| `photos` | Photos found by the last successful search, as `PhotoUi` |
 | `isLoading` | A search is in progress |
-| `isError` | The last search failed (for example no network) |
+| `error` | Why the last search failed (`ErrorUi`), or `null` if it did not fail |
 | `hasSearched` | At least one search has finished, so empty `photos` means "no results", not "not searched yet" |
 
 On `SearchClicked` with a non-blank query the ViewModel hides the keyboard and starts a search:
 
-- It sets `isLoading = true` and clears `isError`. The previous photos stay until the new result arrives.
-- On success it sets the new `photos`. On failure it clears `photos` and sets `isError`. Both set `hasSearched` and end loading.
+- It sets `isLoading = true` and clears `error`. The previous photos stay until the new result arrives.
+- On success it sets the new `photos`. On failure it clears `photos` and sets `error` to the failure mapped with `Throwable.toErrorUi()` (`presentation/mapper/ErrorUiMapper.kt`). Both set `hasSearched` and end loading.
 - A new search cancels the one still running, so a slow older response never overwrites a newer result.
 
 Below the form the screen shows the first state that applies:
 
 1. `isLoading`: a progress indicator.
-2. `isError`: the message "Couldn't load photos. Check your connection and try again." To try again, the user taps Search.
+2. `error`: a message for the kind of error. To try again, the user taps Search.
+   - `ErrorUi.Api(code)` (the API answered with an HTTP error): "API error (500). Try again later.", with the real status code.
+   - `ErrorUi.Network` (no connection): "No connection. Check your network and try again."
+   - `ErrorUi.Unknown` (anything else): "Something went wrong. Try again."
+
+   `ErrorUi` (`presentation/model`) is the UI version of the domain `DomainError`, mapped 1:1. Any failure that is not a `DomainError` becomes `Unknown`. The screen picks the string resource in a `when` over the sealed `ErrorUi`, so a new kind of error does not compile until it has a message.
 3. `hasNoResults` (derived: the last search finished without error and found no photos): the message "No photos found for these tags."
 4. Otherwise the photo grid (empty before the first search).
 
-The grid is a `LazyVerticalGrid` with `GridCells.Adaptive(160.dp)`: two columns on a phone in portrait, more in landscape and on tablets. Each card shows the square-cropped thumbnail, loaded with Coil's `AsyncImage`, and the title in two lines. A coloured background is visible until the image is loaded. A photo without a title (`Photo.hasTitle` is `false`) shows "Untitled" from `strings.xml`.
+The ViewModel maps each domain `Photo` to a `PhotoUi` (`presentation/model`) with `Photo.toUi()` (`presentation/mapper/PhotoUiMapper.kt`). The state, the `PhotoClicked` event, the `NavigateToPhoto` action and the screen use only `PhotoUi`, so the UI does not depend on the domain model.
+
+The grid is a `LazyVerticalGrid` with `GridCells.Adaptive(160.dp)`: two columns on a phone in portrait, more in landscape and on tablets. Each card shows the square-cropped thumbnail, loaded with Coil's `SubcomposeAsyncImage`, and the title in two lines. While the image is loading, its `loading` slot shows a progress indicator over a coloured background. If the image fails to load, the background stays. A photo without a title (`PhotoUi.hasTitle` is `false`) shows "Untitled" from `strings.xml`.
 
 ### Photo detail screen
 
 `PhotoDetailScreen` (`presentation/screen/photodetail`) shows one photo in full screen. Its arguments are a `PhotoDetailRoute(imageUrl, title)` (`presentation/navigation/Routes.kt`), a `@Serializable` class for type-safe navigation:
 
 - `PhotoDetailViewModel` gets the route through **Hilt assisted injection** (`@AssistedInject` with an `@AssistedFactory`), so it is created with a plain constructor call in tests. Its `PhotoDetailUiState` holds `imageUrl` and `title`, with a derived `hasTitle`.
-- The layout is a `Scaffold` with a `TopAppBar`: a back arrow and the title in one line ("Untitled" if `hasTitle` is `false`). Below it, Coil's `AsyncImage` shows the large (`_b`, 1024 px) image with `ContentScale.Fit`, so the whole photo is visible without cropping.
+- The layout is a `Scaffold` with a `TopAppBar`: a back arrow and the title in one line ("Untitled" if `hasTitle` is `false`). Below it, Coil's `SubcomposeAsyncImage` shows the large (`_b`, 1024 px) image with `ContentScale.Fit`, so the whole photo is visible without cropping. Its `loading` slot shows a progress indicator in the middle until the image is loaded.
 - The back arrow sends `PhotoDetailEvent.BackClicked`. The ViewModel answers with `PhotoDetailAction.NavigateBack`, and the screen calls its `onNavigateBack` callback.
 - The arrow is a vector drawable (`res/drawable/ic_arrow_back.xml`, Material Symbols `arrow_back`, mirrored for right-to-left languages). The Material icons library is no longer part of Material 3, and one icon does not need a dependency.
 
@@ -279,17 +293,19 @@ FlickrRecruitmentTask/
 │       │   │   ├── FlickrApp.kt             # @HiltAndroidApp Application
 │       │   │   ├── MainActivity.kt          # @AndroidEntryPoint, Compose host
 │       │   │   ├── data/
-│       │   │   │   ├── mapper/              # DTO → domain model mapping
+│       │   │   │   ├── mapper/              # DTO → domain model mapping, exception → DomainError
 │       │   │   │   ├── repository/          # PhotoRepositoryImpl
-│       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, DTOs
+│       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, OkHttpClientFactory, ApiErrorInterceptor, DTOs
 │       │   │   │       └── datasource/      # PhotoRemoteDataSource
 │       │   │   ├── di/                      # Hilt modules (dispatchers, network, data sources, repositories), DispatcherProvider
 │       │   │   ├── domain/
-│       │   │   │   ├── model/               # Photo (domain model, with the derived hasTitle)
+│       │   │   │   ├── model/               # Photo, DomainError (domain models)
 │       │   │   │   ├── repository/          # PhotoRepository (interface)
 │       │   │   │   └── usecase/             # SearchPhotosUseCase
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
+│       │   │       ├── mapper/              # Domain model → UI model mapping (PhotoUiMapper, ErrorUiMapper)
+│       │   │       ├── model/               # UI models (PhotoUi with the derived hasTitle, ErrorUi)
 │       │   │       ├── navigation/          # FlickrNavHost, routes (SearchRoute, PhotoDetailRoute)
 │       │   │       ├── screen/              # One package per screen
 │       │   │       │   ├── photodetail/     # Full-screen photo: contract, ViewModel, screen
@@ -299,20 +315,23 @@ FlickrRecruitmentTask/
 │       │   └── res/                         # Resources (icons, strings, themes)
 │       ├── test/                            # Local unit tests (JVM)
 │       │   ├── java/.../flickrrecruitmenttask/
-│       │   │   ├── data/mapper/             # PhotoMapperTest
+│       │   │   ├── data/mapper/             # PhotoMapperTest, ErrorMapperTest
 │       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer), datasource/PhotoRemoteDataSourceImplTest
 │       │   │   ├── data/repository/         # PhotoRepositoryImplTest
 │       │   │   ├── di/providers/            # Test DispatcherProvider implementations
-│       │   │   ├── domain/model/            # PhotoTest
 │       │   │   ├── domain/usecase/          # SearchPhotosUseCaseTest
 │       │   │   ├── rules/                   # MainDispatcherRule
 │       │   │   ├── utils/                   # Test helpers (collectToList, snapshotLightAndDark)
+│       │   │   ├── presentation/mapper/     # PhotoUiMapperTest, ErrorUiMapperTest
+│       │   │   ├── presentation/model/      # PhotoUiTest
 │       │   │   └── presentation/screen/     # search/: SearchViewModelTest, SearchScreenScreenshotTest; photodetail/: PhotoDetailViewModelTest, PhotoDetailScreenScreenshotTest
 │       │   ├── resources/feed/              # JSON fixtures of the Flickr feed
 │       │   └── snapshots/images/            # Paparazzi golden PNGs
 │       └── androidTest/                     # Instrumented tests (device/emulator)
 │           └── java/.../flickrrecruitmenttask/
-│               └── presentation/screen/     # SearchScreenTest, PhotoDetailScreenTest (whole screen with a real ViewModel)
+│               ├── presentation/screen/     # SearchScreenTest, PhotoDetailScreenTest (whole screen with a real ViewModel)
+│               ├── rules/                   # FakeImageLoaderRule (fake Coil ImageLoader)
+│               └── utils/                   # Test helpers (isPresent)
 ├── gradle/
 │   ├── libs.versions.toml                   # Dependency version catalog
 │   └── wrapper/                             # Gradle wrapper
@@ -368,19 +387,23 @@ Unit tests cover the ViewModels (`SearchViewModelTest` mocks `SearchPhotosUseCas
 
 `SearchViewModelTest` checks the query and the search button state, that a blank query does not search, the loading state, success, no results, failure (photos cleared), a success after a failure (error cleared) and that a new search cancels the previous one.
 
-API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory` against an OkHttp **MockWebServer**, so they need no network:
+API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory`, with the app's `OkHttpClientFactory` client, against an OkHttp **MockWebServer**, so they need no network:
 
 - The request: the path, the fixed `format` and `nojsoncallback` parameters and the `tags` parameter.
 - Parsing: JSON fixtures in `src/test/resources/feed/` have the same shape as the real feed, including unknown fields, escaped slashes and an empty title. One fixture has no items.
-- Errors: an HTTP error response ends in a Retrofit `HttpException`.
+- Errors: an HTTP error response ends in an `ApiException` with its status code.
+
+`OkHttpClientFactoryTest` checks that a debug client logs requests with their body (`HttpLoggingInterceptor` with level `BODY`), that a release client has no logging interceptor, and that `ApiErrorInterceptor` is in both and comes before the logging one.
+
+`ApiErrorInterceptorTest` runs real OkHttp calls against MockWebServer: a successful response is passed on, and 404 and 500 end in an `ApiException` with that code. `ErrorMapperTest` checks the `ApiException` → `Api`, `IOException` → `Network` and other → `Unknown` mapping.
 
 Data source tests (`PhotoRemoteDataSourceImplTest`) use a MockK `FlickrApi` and a test `DispatcherProvider`. They check that the tags are joined with `,` (and that a single tag is passed as it is), that the API response is returned unchanged and that an API error propagates to the caller.
 
-Repository tests (`PhotoRepositoryImplTest`) use a MockK `PhotoRemoteDataSource`. They check that the tags are passed to the data source, that the feed is mapped to `Photo`s, that an empty feed gives an empty list, that a data source error becomes `Result.failure` and that `CancellationException` is rethrown, not wrapped.
+Repository tests (`PhotoRepositoryImplTest`) use a MockK `PhotoRemoteDataSource`. They check that the tags are passed to the data source, that the feed is mapped to `Photo`s, that an empty feed gives an empty list, that an `ApiException`, an `IOException` and any other exception become `Result.failure` with `DomainError.Api`, `Network` and `Unknown`, and that `CancellationException` is rethrown, not wrapped.
 
 Use case tests (`SearchPhotosUseCaseTest`) use a MockK `PhotoRepository`. They check how the query is split into tags (commas, spaces, empty tags, duplicates), that a query without tags returns an empty list without calling the repository, and that the repository's success and failure are returned unchanged.
 
-Model tests (`PhotoTest`) check `hasTitle`: `true` for a title, `false` for an empty or blank one.
+UI model tests (`PhotoUiTest`) check `hasTitle`: `true` for a title, `false` for an empty or blank one. `PhotoUiMapperTest` checks that every `Photo` field ends up in the right `PhotoUi` field. `ErrorUiMapperTest` checks that each `DomainError` becomes the matching `ErrorUi` and that any other exception becomes `ErrorUi.Unknown`.
 
 Mapper tests (`PhotoMapperTest`) check that every DTO field ends up in the right `Photo` field, including an empty title, the `_m` → `_b` swap (only right before the file extension, for any extension) and a URL without the `_m` suffix, which is kept as it is.
 
@@ -388,14 +411,15 @@ UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**
 
 - There is one `XxxScreenTest` per screen. It renders the public `XxxScreen` with a real ViewModel created by hand, so Hilt is not needed in tests. `SearchScreenTest` passes a MockK `SearchPhotosUseCase` (`mockk-android`), so the tests never call Flickr and each test can set its own result.
 - Nodes are found by **test tags** (an `XxxScreenTestTags` object next to each screen, shared by the screen and the test), not by text. Then the test performs an action (`performTextInput`, `performClick`, `performImeAction`) and asserts the result in the UI, for example the button is enabled or the field lost focus after a search (the keyboard is hidden).
-- `SearchScreenTest` also checks the search states: nothing is shown at first, a search that never finishes (a `CompletableDeferred` the mocked use case awaits) shows the progress indicator, a failed search shows the error message, and a search without photos shows the "no results" message.
+- `SearchScreenTest` also checks the search states: nothing is shown at first, a search that never finishes (a `CompletableDeferred` the mocked use case awaits) shows the progress indicator, a failed search shows the message for its kind of error (API error with the status code, no connection, anything else), and a search without photos shows the "no results" message.
 - It also checks the results: after a search with two photos the grid shows exactly two items with their titles, and a photo without a title shows "Untitled". The image URLs are fake, so the tests do not depend on images being loaded. Tapping a photo calls `onNavigateToPhoto` with that photo.
 - `PhotoDetailScreenTest` creates `PhotoDetailViewModel` with a route and checks the title, the "Untitled" fallback, that the image is shown and that the back arrow calls `onNavigateBack`.
+- Both tests use **`FakeImageLoaderRule`** (`androidTest/.../rules`). For each test it sets Coil's singleton `ImageLoader` to one with a `FakeImageLoaderEngine` from `coil-test`, so images are never loaded from the network. Every image stays loading until the test calls `finishLoading()`, then it loads as a `FakeImage`. The tests check that the loading indicator is shown while a photo is loading (in the grid and in the photo detail screen) and is hidden after it loads. Coil loads images outside Compose's idling, so the tests wait with `waitUntil` and the `isPresent()` helper (`androidTest/.../utils`).
 - Visual appearance is covered by screenshot tests (below).
 
 Screenshot tests (**Paparazzi**) cover how screens look. They render the stateless `XxxScreenLayout` on the JVM with layoutlib, so they need no device or emulator:
 
-- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query, loading, error, no results, results). `PhotoDetailScreenScreenshotTest` covers a title, no title and a long, cut title. Images are not loaded in Paparazzi, so the snapshots show the placeholder background or an empty image area and stay deterministic. All tests use a `PIXEL_5` device config.
+- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query, loading, API error, network error, unknown error, no results, results). `PhotoDetailScreenScreenshotTest` covers a title, no title and a long, cut title. `snapshotLightAndDark` provides a Coil `AsyncImagePreviewHandler` that keeps every image in the `Loading` state. Coil's default preview handler would really run the request, so without it the snapshots would depend on the network. The photo detail snapshots show the progress indicator. In the results grid the indeterminate indicator is drawn with a zero-length arc in Paparazzi's first frame, so the cards show only the placeholder background. All tests use a `PIXEL_5` device config.
 - Each test calls the generic `Paparazzi.snapshotLightAndDark { ... }` helper (`utils/PaparazziTestUtils.kt`). It takes two named snapshots (`light`, `dark`) of any composable in the app theme with `dynamicColor = false`, so tests only describe what to render and the result does not depend on the wallpaper or API level.
 - Golden images live in `app/src/test/snapshots/images/` and are committed. After an intended UI change, record them again and review the PNG diff.
 
@@ -498,16 +522,22 @@ Key technical decisions and their reasoning, in the order they were made.
 | 16 | A **remote data source** (`PhotoRemoteDataSource`) sits between `FlickrApi` and the repository; there is no local data source | Only the data source knows the Flickr request format and does the IO switch. The repository will decide which source to use and map to the domain, so a cache can be added later without touching the network code. No local source is added now, because the task needs no caching. |
 | 17 | `PhotoRepository` is an interface in `domain`, implemented in `data`; `searchPhotos` returns **`Result<List<Photo>>`** and rethrows `CancellationException` | The domain does not depend on the data layer, and the presentation layer can be tested with a fake repository. `Result` makes failure part of the contract, so the presentation layer does not catch Retrofit/IO exceptions. Cancellation is rethrown so structured concurrency keeps working, which `runCatching` would break. |
 | 18 | `SearchPhotosUseCase` takes the **raw query** and splits it into tags; a query without tags returns an empty list without a network call | Turning user input into tags is app logic, so it lives in the pure-Kotlin domain and is unit tested without Android. The ViewModel stays thin, and the use case is more than a pass-through to the repository. Skipping the call avoids showing unrelated recent photos as results. |
-| 19 | `SearchUiState` keeps the search result in **flat fields** (`photos`, `isLoading`, `isError`, `hasSearched`), not in a sealed result type | The photos can be read and transformed (for example sorted or filtered) directly, without checking for a success state first, so the ViewModel and the UI stay simple. `hasSearched` tells "no results" apart from "not searched yet". |
+| 19 | `SearchUiState` keeps the search result in **flat fields** (`photos`, `isLoading`, `error`, `hasSearched`), not in a sealed result type | The photos can be read and transformed (for example sorted or filtered) directly, without checking for a success state first, so the ViewModel and the UI stay simple. `hasSearched` tells "no results" apart from "not searched yet". |
 | 20 | A new search **cancels** the previous one (`searchJob`) | Only the latest query matters. Without cancelling, a slow response for an older query could overwrite the newer result. |
 | 21 | UI tests mock **`SearchPhotosUseCase`** with `mockk-android` instead of using a fake repository | The UI test checks the screen, not how the query is split into tags (that is unit tested). Mocking works the same way as in unit tests, and each test can set its own result (photos, error, loading) with one `coEvery`. Mocking a final class on a device needs API 28+, and the CI emulator runs API 34. |
-| 22 | A failed search shows an **error message in the screen content**, from `isError` in the state, not a Snackbar; there is no separate Retry button | The message comes from the state, so it stays after rotation and needs no one-off action. Tapping Search again retries, so a Retry button would add nothing the task needs. |
+| 22 | A failed search shows an **error message in the screen content**, from `error` in the state, not a Snackbar; there is no separate Retry button | The message comes from the state, so it stays after rotation and needs no one-off action. Tapping Search again retries, so a Retry button would add nothing the task needs. |
 | 23 | **Coil 3** (`coil-compose` + `coil-network-okhttp`) for loading images, version 3.3.0 | The standard image loader for Compose, written in Kotlin with coroutines, with memory and disk caching built in. The OkHttp network module reuses a library the app already has, and it registers itself, so no `ImageLoader` setup or Hilt module is needed. 3.3.0 is the newest version built for Kotlin 2.2 (3.4+ is built with Kotlin 2.3/2.4). |
 | 24 | The results grid uses **`GridCells.Adaptive(160.dp)`** | The number of columns follows the screen width (two on a phone in portrait, more in landscape and on tablets) without any extra code. |
-| 25 | **`Photo.hasTitle`** is a derived flag in the domain; the "Untitled" fallback text comes from `strings.xml` in the UI | The UI only reads a flag and has no condition on the data. The fallback text is a string resource, so it can be translated, which a constant in the mapper could not. |
+| 25 | ~~**`Photo.hasTitle`** is a derived flag in the domain~~ (replaced by #31); the "Untitled" fallback text comes from `strings.xml` in the UI | The UI only reads a flag and has no condition on the data. The fallback text is a string resource, so it can be translated, which a constant in the mapper could not. |
 | 26 | Screens live in **`presentation/screen/<name>`** (for example `screen/search`), one package per screen with its contract, ViewModel and composables | Screens are kept apart from the shared presentation code (`base`, `theme`, `utils`), so each screen is easy to find and a new one has an obvious place. Package names are lowercase, as is usual in Kotlin. |
 | 27 | `PhotoDetailViewModel` gets its `PhotoDetailRoute` through **Hilt assisted injection**, not by reading `SavedStateHandle` | The ViewModel gets a typed route and tests create it with a plain constructor call, without `SavedStateHandle` or Robolectric. After process death, Navigation restores the route and passes it again. The screen still follows MVI (state, events, actions), so all screens work the same way. |
 | 28 | **Navigation Compose 2.10** with type-safe `@Serializable` routes, not Navigation 3 | A mature API most teams know. kotlinx.serialization is already in the project, and 2.10.2 is built for Kotlin 2.1, so it works with Kotlin 2.2. Navigation 3 (a back stack as a plain list) is newer but less known, and with two screens it brings no advantage. |
+| 29 | Photos are loaded with **`SubcomposeAsyncImage`** and its `loading` slot shows a `CircularProgressIndicator` | `AsyncImage` only takes a `Painter` as a placeholder, so an animated indicator would need a custom overlay and state tracking. The `loading` slot takes any composable, so it is the simplest way. Subcomposition is slower than `AsyncImage`, but with at most 20 fixed-size cards it makes no visible difference. |
+| 30 | UI tests replace Coil's singleton `ImageLoader` with **`coil-test`'s `FakeImageLoaderEngine`** in a JUnit rule | Tests do not depend on the network, and each test decides when images finish loading, so both the loading and the loaded state can be checked. A rule sets the loader up and resets it for every test in one line, like `MainDispatcherRule` in unit tests. |
+| 31 | The UI uses its own **`PhotoUi`** model, mapped from the domain `Photo` with `Photo.toUi()` in `presentation/mapper`; `hasTitle` moved from `Photo` to `PhotoUi` | The UI does not depend on the domain model, so either can change without touching the other, the same way `data/mapper` keeps DTOs out of the domain. `hasTitle` only decides whether the UI shows a fallback text, so it belongs to the UI model, like `PhotoDetailUiState.hasTitle`. |
+| 32 | Requests are logged with OkHttp's **`HttpLoggingInterceptor`** at level `BODY`, **only in debug builds** (`BuildConfig.DEBUG`) | The full request and response in Logcat make it easy to see what is sent to Flickr. In release builds the interceptor is not added at all, so no data is logged and no time is spent on it. The client is built in `OkHttpClientFactory`, outside the Hilt module, so the setup is unit tested. |
+| 33 | HTTP errors are turned into an **`ApiException`** by an OkHttp **`ApiErrorInterceptor`**, and the repository maps failures to a sealed **`DomainError`** (`Api(code)`, `Network`, `Unknown`) | One interceptor handles error responses for every call, so a new endpoint gets the same handling without extra code. The domain and the UI only see `DomainError`, not OkHttp or Retrofit types, and can tell a server error, a missing connection and anything else apart. The sealed class makes every `when` handle all cases, so a new kind of error (for example a business rule) cannot be forgotten. |
+| 34 | The UI gets its own sealed **`ErrorUi`** (`Api(code)`, `Network`, `Unknown`) in `SearchUiState.error`, mapped from `DomainError` | The same split as `Photo` and `PhotoUi`: the screen does not depend on domain types. One nullable field replaces `isError`, so the state still has flat fields (#19) and can only hold one error at a time. The API message shows the status code, so it is visible that the code travels from the interceptor through the domain to the UI. |
 
 ---
 
@@ -532,6 +562,9 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Code coverage: JaCoCo setup with the `jacocoTestReport` and `jacocoFullTestReport` tasks, the exclude list and the `@ExcludeFromJacocoGeneratedReport` annotation for previews
 - CI/CD: the GitHub Actions workflows and the branching flow
 - Networking: the Retrofit/OkHttp/kotlinx.serialization setup, `FlickrApi`, its DTOs and `FlickrApiTest` with MockWebServer
+- Request logging: `OkHttpClientFactory` with `HttpLoggingInterceptor` in debug builds and `OkHttpClientFactoryTest`
+- API errors: `ApiErrorInterceptor`, `ApiException`, `DomainError`, the `toDomainError()` mapper in the repository, and their tests
+- Error messages: `ErrorUi`, the `toErrorUi()` mapper, `SearchUiState.error` with one message per kind of error, and the new unit, UI and screenshot tests
 - Domain layer: the `Photo` model, the DTO → `Photo` mapper and `PhotoMapperTest`
 - Remote data source: `PhotoRemoteDataSource`, its Hilt binding and `PhotoRemoteDataSourceImplTest`
 - Repository: the `PhotoRepository` interface, `PhotoRepositoryImpl`, its Hilt binding and `PhotoRepositoryImplTest`
@@ -539,9 +572,11 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Search in the ViewModel: the search state in `SearchUiState`, calling the use case from `SearchViewModel`, cancelling an older search, and the updated `SearchViewModelTest` and `SearchScreenTest`
 - Search states on the screen: the loading indicator, the error and "no results" messages, their UI tests and screenshot tests
 - Results grid: the Coil setup, the photo grid with titles and the "Untitled" fallback, `Photo.hasTitle`, `PhotoTest` and the new UI and screenshot tests
+- UI model: `PhotoUi` with `hasTitle`, the `Photo.toUi()` mapper, switching the search screen to `PhotoUi`, `PhotoUiTest` and `PhotoUiMapperTest`
 - Package layout: moving the search screen to `presentation/screen/search`
 - Photo detail screen: `PhotoDetailRoute`, the contract, `PhotoDetailViewModel` with assisted injection, the screen, `PhotoDetailViewModelTest`, `PhotoDetailScreenTest` and `PhotoDetailScreenScreenshotTest`
 - Navigation: Navigation Compose setup, `FlickrNavHost` with `SearchRoute` and `PhotoDetailRoute`, opening a photo from the grid and the new ViewModel and UI tests
+- Photo loading indicator: `SubcomposeAsyncImage` with a `loading` slot in the grid and the photo detail screen, deterministic Coil images in Paparazzi snapshots, `FakeImageLoaderRule` with `coil-test` and the loading indicator UI tests
 
 ### How it is used
 

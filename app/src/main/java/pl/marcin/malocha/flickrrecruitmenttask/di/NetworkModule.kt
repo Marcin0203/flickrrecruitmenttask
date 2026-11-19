@@ -5,8 +5,10 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
+import pl.marcin.malocha.flickrrecruitmenttask.BuildConfig
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.FlickrApi
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.FlickrApiFactory
+import pl.marcin.malocha.flickrrecruitmenttask.data.remote.OkHttpClientFactory
 import javax.inject.Singleton
 
 @InstallIn(SingletonComponent::class)
@@ -15,7 +17,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient = OkHttpClient()
+    fun provideOkHttpClient(): OkHttpClient = OkHttpClientFactory.create(isDebug = BuildConfig.DEBUG)
 
     @Provides
     @Singleton
