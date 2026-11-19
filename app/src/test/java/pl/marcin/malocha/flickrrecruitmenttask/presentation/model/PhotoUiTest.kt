@@ -1,11 +1,11 @@
-package pl.marcin.malocha.flickrrecruitmenttask.domain.model
+package pl.marcin.malocha.flickrrecruitmenttask.presentation.model
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
-class PhotoTest {
+class PhotoUiTest {
 
-    private fun photo(title: String) = Photo(
+    private fun photo(title: String) = PhotoUi(
         id = "https://www.flickr.com/photos/user/111/",
         title = title,
         thumbnailUrl = "https://live.staticflickr.com/65535/111_abc_m.jpg",

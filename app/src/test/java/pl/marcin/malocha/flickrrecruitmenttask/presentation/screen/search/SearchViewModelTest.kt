@@ -15,6 +15,7 @@ import pl.marcin.malocha.flickrrecruitmenttask.di.providers.TestDispatchers
 import pl.marcin.malocha.flickrrecruitmenttask.di.providers.UnconfinedTestDispatcher
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.domain.usecase.SearchPhotosUseCase
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.rules.MainDispatcherRule
 import pl.marcin.malocha.flickrrecruitmenttask.utils.collectToList
 import java.io.IOException
@@ -42,6 +43,13 @@ class SearchViewModelTest {
     }
 
     private fun photo(id: String) = Photo(
+        id = "https://www.flickr.com/photos/user/$id/",
+        title = "Photo $id",
+        thumbnailUrl = "https://live.staticflickr.com/65535/${id}_abc_m.jpg",
+        fullSizeUrl = "https://live.staticflickr.com/65535/${id}_abc_b.jpg",
+    )
+
+    private fun photoUi(id: String) = PhotoUi(
         id = "https://www.flickr.com/photos/user/$id/",
         title = "Photo $id",
         thumbnailUrl = "https://live.staticflickr.com/65535/${id}_abc_m.jpg",
@@ -118,9 +126,9 @@ class SearchViewModelTest {
     fun eventsTest_PhotoClicked_NavigatesToPhoto() = runTest(scheduler) {
         val actions = collectToList(viewModel.actions)
 
-        viewModel.onEvent(SearchEvent.PhotoClicked(photo("1")))
+        viewModel.onEvent(SearchEvent.PhotoClicked(photoUi("1")))
 
-        assertThat(actions).containsExactly(SearchAction.NavigateToPhoto(photo("1")))
+        assertThat(actions).containsExactly(SearchAction.NavigateToPhoto(photoUi("1")))
     }
 
     @Test
@@ -141,13 +149,12 @@ class SearchViewModelTest {
 
     @Test
     fun searchTest_Success_ShowsPhotos() = runTest(scheduler) {
-        val photos = listOf(photo("1"), photo("2"))
-        coEvery { searchPhotos(any()) } returns Result.success(photos)
+        coEvery { searchPhotos(any()) } returns Result.success(listOf(photo("1"), photo("2")))
 
         search("cat")
 
         val state = viewModel.state.value
-        assertThat(state.photos).isEqualTo(photos)
+        assertThat(state.photos).containsExactly(photoUi("1"), photoUi("2")).inOrder()
         assertThat(state.isLoading).isFalse()
         assertThat(state.isError).isFalse()
         assertThat(state.hasSearched).isTrue()
@@ -190,7 +197,7 @@ class SearchViewModelTest {
         search("cat")
 
         assertThat(viewModel.state.value.isError).isFalse()
-        assertThat(viewModel.state.value.photos).containsExactly(photo("1"))
+        assertThat(viewModel.state.value.photos).containsExactly(photoUi("1"))
     }
 
     @Test
@@ -204,7 +211,7 @@ class SearchViewModelTest {
         firstResult.complete(Result.success(listOf(photo("cat"))))
         scheduler.advanceUntilIdle()
 
-        assertThat(viewModel.state.value.photos).containsExactly(photo("dog"))
+        assertThat(viewModel.state.value.photos).containsExactly(photoUi("dog"))
         assertThat(viewModel.state.value.isLoading).isFalse()
     }
 }
