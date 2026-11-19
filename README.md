@@ -110,7 +110,7 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | UI | Jetpack Compose (BOM 2026.02.01), Material 3 |
 | Architecture | MVI on `StateFlow` / `SharedFlow`, AndroidX ViewModel, Lifecycle Compose 2.11.0 (`collectAsStateWithLifecycle`) |
 | Dependency injection | Hilt 2.60.1 (KSP 2.3.12), `androidx.hilt` 1.4.0 (`hiltViewModel()`) |
-| Networking | Retrofit 3.0.0, OkHttp 5.5.1, kotlinx.serialization 1.9.0 (Retrofit converter) |
+| Networking | Retrofit 3.0.0, OkHttp 5.5.1 (with `logging-interceptor` in debug builds), kotlinx.serialization 1.9.0 (Retrofit converter) |
 | Image loading | Coil 3.3.0 (`coil-compose`, `coil-network-okhttp`) |
 | Navigation | Navigation Compose 2.10.2 (type-safe routes with kotlinx.serialization) |
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
@@ -141,7 +141,8 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 - **`FlickrApi`**: a Retrofit interface with one call, `getPublicPhotos(tags)`. The fixed `format=json&nojsoncallback=1` parameters are part of the path, and `tags` is added as a query parameter.
 - **DTOs** (`data/remote/dto`): `@Serializable` classes that declare only the fields the app uses (`title`, `link`, `media.m`). The parser skips the rest (`ignoreUnknownKeys`).
 - **`FlickrApiFactory`**: builds `FlickrApi` from an `OkHttpClient` and a base URL (`https://api.flickr.com/` by default). It lives outside the Hilt module, so tests use exactly the same Retrofit and JSON setup against a mock server.
-- **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` and `FlickrApi`.
+- **`OkHttpClientFactory`**: builds the `OkHttpClient`. In debug builds it adds OkHttp's `HttpLoggingInterceptor` with level `BODY`, so every request and response, with headers and body, is printed to Logcat (filter by the tag `okhttp.OkHttpClient`). Release builds add no logging interceptor, so nothing is logged. Coil uses its own `OkHttpClient`, so image downloads do not show up in these logs.
+- **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` (`OkHttpClientFactory.create(isDebug = BuildConfig.DEBUG)`, with `buildConfig` enabled in Gradle) and `FlickrApi`.
 
 ### Remote data source
 
@@ -283,7 +284,7 @@ FlickrRecruitmentTask/
 │       │   │   ├── data/
 │       │   │   │   ├── mapper/              # DTO → domain model mapping
 │       │   │   │   ├── repository/          # PhotoRepositoryImpl
-│       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, DTOs
+│       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, OkHttpClientFactory, DTOs
 │       │   │   │       └── datasource/      # PhotoRemoteDataSource
 │       │   │   ├── di/                      # Hilt modules (dispatchers, network, data sources, repositories), DispatcherProvider
 │       │   │   ├── domain/
@@ -380,6 +381,8 @@ API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory` agains
 - The request: the path, the fixed `format` and `nojsoncallback` parameters and the `tags` parameter.
 - Parsing: JSON fixtures in `src/test/resources/feed/` have the same shape as the real feed, including unknown fields, escaped slashes and an empty title. One fixture has no items.
 - Errors: an HTTP error response ends in a Retrofit `HttpException`.
+
+`OkHttpClientFactoryTest` checks that a debug client logs requests with their body (`HttpLoggingInterceptor` with level `BODY`) and that a release client has no logging interceptor.
 
 Data source tests (`PhotoRemoteDataSourceImplTest`) use a MockK `FlickrApi` and a test `DispatcherProvider`. They check that the tags are joined with `,` (and that a single tag is passed as it is), that the API response is returned unchanged and that an API error propagates to the caller.
 
@@ -519,6 +522,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 29 | Photos are loaded with **`SubcomposeAsyncImage`** and its `loading` slot shows a `CircularProgressIndicator` | `AsyncImage` only takes a `Painter` as a placeholder, so an animated indicator would need a custom overlay and state tracking. The `loading` slot takes any composable, so it is the simplest way. Subcomposition is slower than `AsyncImage`, but with at most 20 fixed-size cards it makes no visible difference. |
 | 30 | UI tests replace Coil's singleton `ImageLoader` with **`coil-test`'s `FakeImageLoaderEngine`** in a JUnit rule | Tests do not depend on the network, and each test decides when images finish loading, so both the loading and the loaded state can be checked. A rule sets the loader up and resets it for every test in one line, like `MainDispatcherRule` in unit tests. |
 | 31 | The UI uses its own **`PhotoUi`** model, mapped from the domain `Photo` with `Photo.toUi()` in `presentation/mapper`; `hasTitle` moved from `Photo` to `PhotoUi` | The UI does not depend on the domain model, so either can change without touching the other, the same way `data/mapper` keeps DTOs out of the domain. `hasTitle` only decides whether the UI shows a fallback text, so it belongs to the UI model, like `PhotoDetailUiState.hasTitle`. |
+| 32 | Requests are logged with OkHttp's **`HttpLoggingInterceptor`** at level `BODY`, **only in debug builds** (`BuildConfig.DEBUG`) | The full request and response in Logcat make it easy to see what is sent to Flickr. In release builds the interceptor is not added at all, so no data is logged and no time is spent on it. The client is built in `OkHttpClientFactory`, outside the Hilt module, so the setup is unit tested. |
 
 ---
 
@@ -543,6 +547,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Code coverage: JaCoCo setup with the `jacocoTestReport` and `jacocoFullTestReport` tasks, the exclude list and the `@ExcludeFromJacocoGeneratedReport` annotation for previews
 - CI/CD: the GitHub Actions workflows and the branching flow
 - Networking: the Retrofit/OkHttp/kotlinx.serialization setup, `FlickrApi`, its DTOs and `FlickrApiTest` with MockWebServer
+- Request logging: `OkHttpClientFactory` with `HttpLoggingInterceptor` in debug builds and `OkHttpClientFactoryTest`
 - Domain layer: the `Photo` model, the DTO → `Photo` mapper and `PhotoMapperTest`
 - Remote data source: `PhotoRemoteDataSource`, its Hilt binding and `PhotoRemoteDataSourceImplTest`
 - Repository: the `PhotoRepository` interface, `PhotoRepositoryImpl`, its Hilt binding and `PhotoRepositoryImplTest`
