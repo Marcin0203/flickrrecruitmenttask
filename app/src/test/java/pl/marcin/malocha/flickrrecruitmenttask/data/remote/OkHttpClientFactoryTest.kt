@@ -20,4 +20,21 @@ class OkHttpClientFactoryTest {
 
         assertThat(client.interceptors.filterIsInstance<HttpLoggingInterceptor>()).isEmpty()
     }
+
+    @Test
+    fun createTest_Debug_ApiErrorInterceptorWrapsLogging() {
+        val client = OkHttpClientFactory.create(isDebug = true)
+
+        assertThat(client.interceptors.map { it::class }).containsExactly(
+            ApiErrorInterceptor::class,
+            HttpLoggingInterceptor::class,
+        ).inOrder()
+    }
+
+    @Test
+    fun createTest_Release_HasApiErrorInterceptor() {
+        val client = OkHttpClientFactory.create(isDebug = false)
+
+        assertThat(client.interceptors.map { it::class }).containsExactly(ApiErrorInterceptor::class)
+    }
 }

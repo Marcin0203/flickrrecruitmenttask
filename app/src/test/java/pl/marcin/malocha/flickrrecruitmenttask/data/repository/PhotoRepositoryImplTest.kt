@@ -6,10 +6,12 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
+import pl.marcin.malocha.flickrrecruitmenttask.data.remote.ApiException
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.datasource.PhotoRemoteDataSource
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.dto.FeedPhotoDto
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.dto.FeedPhotoMediaDto
 import pl.marcin.malocha.flickrrecruitmenttask.data.remote.dto.PublicPhotosFeedDto
+import pl.marcin.malocha.flickrrecruitmenttask.domain.model.DomainError
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import java.io.IOException
 import kotlin.coroutines.cancellation.CancellationException
@@ -63,15 +65,34 @@ class PhotoRepositoryImplTest {
     }
 
     @Test
-    fun searchPhotosTest_RemoteThrows_ReturnsFailure() = runTest {
+    fun searchPhotosTest_ApiError_ReturnsApiFailure() = runTest {
+        coEvery { remoteDataSource.getPublicPhotos(any()) } throws ApiException(code = 500)
+
+        val result = createRepository().searchPhotos(listOf("cat"))
+
+        assertThat(result.exceptionOrNull()).isEqualTo(DomainError.Api(code = 500))
+    }
+
+    @Test
+    fun searchPhotosTest_NetworkError_ReturnsNetworkFailure() = runTest {
         coEvery { remoteDataSource.getPublicPhotos(any()) } throws IOException("No network")
 
         val result = createRepository().searchPhotos(listOf("cat"))
 
-        assertThat(result.isFailure).isTrue()
+        assertThat(result.exceptionOrNull()).isEqualTo(DomainError.Network)
+    }
+
+    @Test
+    fun searchPhotosTest_OtherError_ReturnsUnknownFailure() = runTest {
+        coEvery { remoteDataSource.getPublicPhotos(any()) } throws IllegalStateException("Broken JSON")
+
+        val result = createRepository().searchPhotos(listOf("cat"))
+
+        val error = result.exceptionOrNull()
+        assertThat(error).isInstanceOf(DomainError.Unknown::class.java)
         // Coroutines may copy the exception to recover its stack trace, so type and message are checked, not the instance.
-        assertThat(result.exceptionOrNull()).isInstanceOf(IOException::class.java)
-        assertThat(result.exceptionOrNull()).hasMessageThat().isEqualTo("No network")
+        assertThat((error as DomainError.Unknown).cause).isInstanceOf(IllegalStateException::class.java)
+        assertThat(error.cause).hasMessageThat().isEqualTo("Broken JSON")
     }
 
     @Test

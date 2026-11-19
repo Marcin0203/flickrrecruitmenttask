@@ -141,7 +141,8 @@ The app follows **Clean Architecture** with layers kept as packages in the singl
 - **`FlickrApi`**: a Retrofit interface with one call, `getPublicPhotos(tags)`. The fixed `format=json&nojsoncallback=1` parameters are part of the path, and `tags` is added as a query parameter.
 - **DTOs** (`data/remote/dto`): `@Serializable` classes that declare only the fields the app uses (`title`, `link`, `media.m`). The parser skips the rest (`ignoreUnknownKeys`).
 - **`FlickrApiFactory`**: builds `FlickrApi` from an `OkHttpClient` and a base URL (`https://api.flickr.com/` by default). It lives outside the Hilt module, so tests use exactly the same Retrofit and JSON setup against a mock server.
-- **`OkHttpClientFactory`**: builds the `OkHttpClient`. In debug builds it adds OkHttp's `HttpLoggingInterceptor` with level `BODY`, so every request and response, with headers and body, is printed to Logcat (filter by the tag `okhttp.OkHttpClient`). Release builds add no logging interceptor, so nothing is logged. Coil uses its own `OkHttpClient`, so image downloads do not show up in these logs.
+- **`ApiErrorInterceptor`**: an OkHttp `Interceptor` that turns every HTTP error response (4xx, 5xx) into an `ApiException(code)`. `ApiException` extends `IOException`, because OkHttp expects interceptors to throw only `IOException`s. Because of this interceptor, Retrofit never sees an error response, so its `HttpException` is not used.
+- **`OkHttpClientFactory`**: builds the `OkHttpClient`. `ApiErrorInterceptor` is always added first, so it wraps the logging interceptor and an error response is logged in full before it becomes an exception. In debug builds it adds OkHttp's `HttpLoggingInterceptor` with level `BODY`, so every request and response, with headers and body, is printed to Logcat (filter by the tag `okhttp.OkHttpClient`). Release builds add no logging interceptor, so nothing is logged. Coil uses its own `OkHttpClient`, so image downloads do not show up in these logs.
 - **`NetworkModule`** (`di`) provides a singleton `OkHttpClient` (`OkHttpClientFactory.create(isDebug = BuildConfig.DEBUG)`, with `buildConfig` enabled in Gradle) and `FlickrApi`.
 
 ### Remote data source
@@ -168,7 +169,12 @@ FlickrApi ──▶ PhotoRemoteDataSource ──▶ PhotoRepository ──▶ re
 
 - It decides where the photos come from. Today that is only `PhotoRemoteDataSource`.
 - It maps the feed to `Photo`s with `toDomain()`.
-- It returns `Result.success` with the photos, or `Result.failure` with the exception (for example no network or an HTTP error), so callers do not need to know data-layer exception types.
+- It returns `Result.success` with the photos, or `Result.failure` with a **`DomainError`** (`domain/model`), so callers do not need to know data-layer exception types. `Throwable.toDomainError()` (`data/mapper/ErrorMapper.kt`) maps:
+  - `ApiException` → `DomainError.Api(code)`: the API answered with an HTTP error. It is checked first, because `ApiException` is an `IOException`.
+  - any other `IOException` → `DomainError.Network`: the API could not be reached (no connection, timeout).
+  - anything else → `DomainError.Unknown(cause)`, for example a response that could not be parsed.
+
+  `DomainError` is a sealed class that extends `Exception`, so it fits into `Result`. Other kinds of errors, for example business rules, would be new subtypes, and every `when` over them would have to handle them.
 - It rethrows `CancellationException` instead of wrapping it in a failure. Otherwise a cancelled search (for example when the screen is closed) would be reported as an error and coroutine cancellation would break. This is why it uses `try`/`catch` and not `runCatching`, which catches everything.
 - It does not switch dispatchers, because the data source already runs the call on `io`.
 
@@ -282,13 +288,13 @@ FlickrRecruitmentTask/
 │       │   │   ├── FlickrApp.kt             # @HiltAndroidApp Application
 │       │   │   ├── MainActivity.kt          # @AndroidEntryPoint, Compose host
 │       │   │   ├── data/
-│       │   │   │   ├── mapper/              # DTO → domain model mapping
+│       │   │   │   ├── mapper/              # DTO → domain model mapping, exception → DomainError
 │       │   │   │   ├── repository/          # PhotoRepositoryImpl
-│       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, OkHttpClientFactory, DTOs
+│       │   │   │   └── remote/              # FlickrApi (Retrofit), FlickrApiFactory, OkHttpClientFactory, ApiErrorInterceptor, DTOs
 │       │   │   │       └── datasource/      # PhotoRemoteDataSource
 │       │   │   ├── di/                      # Hilt modules (dispatchers, network, data sources, repositories), DispatcherProvider
 │       │   │   ├── domain/
-│       │   │   │   ├── model/               # Photo (domain model)
+│       │   │   │   ├── model/               # Photo, DomainError (domain models)
 │       │   │   │   ├── repository/          # PhotoRepository (interface)
 │       │   │   │   └── usecase/             # SearchPhotosUseCase
 │       │   │   └── presentation/
@@ -304,7 +310,7 @@ FlickrRecruitmentTask/
 │       │   └── res/                         # Resources (icons, strings, themes)
 │       ├── test/                            # Local unit tests (JVM)
 │       │   ├── java/.../flickrrecruitmenttask/
-│       │   │   ├── data/mapper/             # PhotoMapperTest
+│       │   │   ├── data/mapper/             # PhotoMapperTest, ErrorMapperTest
 │       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer), datasource/PhotoRemoteDataSourceImplTest
 │       │   │   ├── data/repository/         # PhotoRepositoryImplTest
 │       │   │   ├── di/providers/            # Test DispatcherProvider implementations
@@ -376,17 +382,19 @@ Unit tests cover the ViewModels (`SearchViewModelTest` mocks `SearchPhotosUseCas
 
 `SearchViewModelTest` checks the query and the search button state, that a blank query does not search, the loading state, success, no results, failure (photos cleared), a success after a failure (error cleared) and that a new search cancels the previous one.
 
-API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory` against an OkHttp **MockWebServer**, so they need no network:
+API tests (`FlickrApiTest`) check `FlickrApi` built by `FlickrApiFactory`, with the app's `OkHttpClientFactory` client, against an OkHttp **MockWebServer**, so they need no network:
 
 - The request: the path, the fixed `format` and `nojsoncallback` parameters and the `tags` parameter.
 - Parsing: JSON fixtures in `src/test/resources/feed/` have the same shape as the real feed, including unknown fields, escaped slashes and an empty title. One fixture has no items.
-- Errors: an HTTP error response ends in a Retrofit `HttpException`.
+- Errors: an HTTP error response ends in an `ApiException` with its status code.
 
-`OkHttpClientFactoryTest` checks that a debug client logs requests with their body (`HttpLoggingInterceptor` with level `BODY`) and that a release client has no logging interceptor.
+`OkHttpClientFactoryTest` checks that a debug client logs requests with their body (`HttpLoggingInterceptor` with level `BODY`), that a release client has no logging interceptor, and that `ApiErrorInterceptor` is in both and comes before the logging one.
+
+`ApiErrorInterceptorTest` runs real OkHttp calls against MockWebServer: a successful response is passed on, and 404 and 500 end in an `ApiException` with that code. `ErrorMapperTest` checks the `ApiException` → `Api`, `IOException` → `Network` and other → `Unknown` mapping.
 
 Data source tests (`PhotoRemoteDataSourceImplTest`) use a MockK `FlickrApi` and a test `DispatcherProvider`. They check that the tags are joined with `,` (and that a single tag is passed as it is), that the API response is returned unchanged and that an API error propagates to the caller.
 
-Repository tests (`PhotoRepositoryImplTest`) use a MockK `PhotoRemoteDataSource`. They check that the tags are passed to the data source, that the feed is mapped to `Photo`s, that an empty feed gives an empty list, that a data source error becomes `Result.failure` and that `CancellationException` is rethrown, not wrapped.
+Repository tests (`PhotoRepositoryImplTest`) use a MockK `PhotoRemoteDataSource`. They check that the tags are passed to the data source, that the feed is mapped to `Photo`s, that an empty feed gives an empty list, that an `ApiException`, an `IOException` and any other exception become `Result.failure` with `DomainError.Api`, `Network` and `Unknown`, and that `CancellationException` is rethrown, not wrapped.
 
 Use case tests (`SearchPhotosUseCaseTest`) use a MockK `PhotoRepository`. They check how the query is split into tags (commas, spaces, empty tags, duplicates), that a query without tags returns an empty list without calling the repository, and that the repository's success and failure are returned unchanged.
 
@@ -523,6 +531,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 30 | UI tests replace Coil's singleton `ImageLoader` with **`coil-test`'s `FakeImageLoaderEngine`** in a JUnit rule | Tests do not depend on the network, and each test decides when images finish loading, so both the loading and the loaded state can be checked. A rule sets the loader up and resets it for every test in one line, like `MainDispatcherRule` in unit tests. |
 | 31 | The UI uses its own **`PhotoUi`** model, mapped from the domain `Photo` with `Photo.toUi()` in `presentation/mapper`; `hasTitle` moved from `Photo` to `PhotoUi` | The UI does not depend on the domain model, so either can change without touching the other, the same way `data/mapper` keeps DTOs out of the domain. `hasTitle` only decides whether the UI shows a fallback text, so it belongs to the UI model, like `PhotoDetailUiState.hasTitle`. |
 | 32 | Requests are logged with OkHttp's **`HttpLoggingInterceptor`** at level `BODY`, **only in debug builds** (`BuildConfig.DEBUG`) | The full request and response in Logcat make it easy to see what is sent to Flickr. In release builds the interceptor is not added at all, so no data is logged and no time is spent on it. The client is built in `OkHttpClientFactory`, outside the Hilt module, so the setup is unit tested. |
+| 33 | HTTP errors are turned into an **`ApiException`** by an OkHttp **`ApiErrorInterceptor`**, and the repository maps failures to a sealed **`DomainError`** (`Api(code)`, `Network`, `Unknown`) | One interceptor handles error responses for every call, so a new endpoint gets the same handling without extra code. The domain and the UI only see `DomainError`, not OkHttp or Retrofit types, and can tell a server error, a missing connection and anything else apart. The sealed class makes every `when` handle all cases, so a new kind of error (for example a business rule) cannot be forgotten. |
 
 ---
 
@@ -548,6 +557,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - CI/CD: the GitHub Actions workflows and the branching flow
 - Networking: the Retrofit/OkHttp/kotlinx.serialization setup, `FlickrApi`, its DTOs and `FlickrApiTest` with MockWebServer
 - Request logging: `OkHttpClientFactory` with `HttpLoggingInterceptor` in debug builds and `OkHttpClientFactoryTest`
+- API errors: `ApiErrorInterceptor`, `ApiException`, `DomainError`, the `toDomainError()` mapper in the repository, and their tests
 - Domain layer: the `Photo` model, the DTO → `Photo` mapper and `PhotoMapperTest`
 - Remote data source: `PhotoRemoteDataSource`, its Hilt binding and `PhotoRemoteDataSourceImplTest`
 - Repository: the `PhotoRepository` interface, `PhotoRepositoryImpl`, its Hilt binding and `PhotoRepositoryImplTest`
