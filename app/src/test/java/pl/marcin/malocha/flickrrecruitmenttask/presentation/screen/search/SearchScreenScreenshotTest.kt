@@ -4,6 +4,7 @@ import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import org.junit.Rule
 import org.junit.Test
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.ErrorUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.utils.snapshotLightAndDark
 
@@ -33,9 +34,25 @@ class SearchScreenScreenshotTest {
     }
 
     @Test
-    fun screenshotTest_Error() = paparazzi.snapshotLightAndDark {
+    fun screenshotTest_ApiError() = paparazzi.snapshotLightAndDark {
         SearchScreenLayout(
-            state = SearchUiState(query = "cat, dog", isError = true, hasSearched = true),
+            state = SearchUiState(query = "cat, dog", error = ErrorUi.Api(code = 500), hasSearched = true),
+            onEvent = {},
+        )
+    }
+
+    @Test
+    fun screenshotTest_NetworkError() = paparazzi.snapshotLightAndDark {
+        SearchScreenLayout(
+            state = SearchUiState(query = "cat, dog", error = ErrorUi.Network, hasSearched = true),
+            onEvent = {},
+        )
+    }
+
+    @Test
+    fun screenshotTest_UnknownError() = paparazzi.snapshotLightAndDark {
+        SearchScreenLayout(
+            state = SearchUiState(query = "cat, dog", error = ErrorUi.Unknown, hasSearched = true),
             onEvent = {},
         )
     }

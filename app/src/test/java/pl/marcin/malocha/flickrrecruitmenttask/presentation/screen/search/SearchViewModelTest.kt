@@ -13,12 +13,13 @@ import org.junit.Rule
 import org.junit.Test
 import pl.marcin.malocha.flickrrecruitmenttask.di.providers.TestDispatchers
 import pl.marcin.malocha.flickrrecruitmenttask.di.providers.UnconfinedTestDispatcher
+import pl.marcin.malocha.flickrrecruitmenttask.domain.model.DomainError
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.domain.usecase.SearchPhotosUseCase
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.ErrorUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.rules.MainDispatcherRule
 import pl.marcin.malocha.flickrrecruitmenttask.utils.collectToList
-import java.io.IOException
 
 class SearchViewModelTest {
 
@@ -69,7 +70,7 @@ class SearchViewModelTest {
         assertThat(state.isSearchEnabled).isFalse()
         assertThat(state.photos).isEmpty()
         assertThat(state.isLoading).isFalse()
-        assertThat(state.isError).isFalse()
+        assertThat(state.error).isNull()
         assertThat(state.hasSearched).isFalse()
         assertThat(state.hasNoResults).isFalse()
     }
@@ -156,7 +157,7 @@ class SearchViewModelTest {
         val state = viewModel.state.value
         assertThat(state.photos).containsExactly(photoUi("1"), photoUi("2")).inOrder()
         assertThat(state.isLoading).isFalse()
-        assertThat(state.isError).isFalse()
+        assertThat(state.error).isNull()
         assertThat(state.hasSearched).isTrue()
         assertThat(state.hasNoResults).isFalse()
     }
@@ -167,7 +168,7 @@ class SearchViewModelTest {
 
         val state = viewModel.state.value
         assertThat(state.photos).isEmpty()
-        assertThat(state.isError).isFalse()
+        assertThat(state.error).isNull()
         assertThat(state.hasSearched).isTrue()
         assertThat(state.hasNoResults).isTrue()
     }
@@ -176,27 +177,27 @@ class SearchViewModelTest {
     fun searchTest_Failure_ShowsErrorAndClearsPhotos() = runTest(scheduler) {
         coEvery { searchPhotos(any()) } returns Result.success(listOf(photo("1")))
         search("cat")
-        coEvery { searchPhotos(any()) } returns Result.failure(IOException("No network"))
+        coEvery { searchPhotos(any()) } returns Result.failure(DomainError.Api(code = 500))
 
         search("dog")
 
         val state = viewModel.state.value
         assertThat(state.photos).isEmpty()
         assertThat(state.isLoading).isFalse()
-        assertThat(state.isError).isTrue()
+        assertThat(state.error).isEqualTo(ErrorUi.Api(code = 500))
         assertThat(state.hasSearched).isTrue()
         assertThat(state.hasNoResults).isFalse()
     }
 
     @Test
     fun searchTest_SuccessAfterFailure_ClearsError() = runTest(scheduler) {
-        coEvery { searchPhotos(any()) } returns Result.failure(IOException("No network"))
+        coEvery { searchPhotos(any()) } returns Result.failure(DomainError.Network)
         search("cat")
         coEvery { searchPhotos(any()) } returns Result.success(listOf(photo("1")))
 
         search("cat")
 
-        assertThat(viewModel.state.value.isError).isFalse()
+        assertThat(viewModel.state.value.error).isNull()
         assertThat(viewModel.state.value.photos).containsExactly(photoUi("1"))
     }
 

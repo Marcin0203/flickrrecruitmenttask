@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import pl.marcin.malocha.flickrrecruitmenttask.di.providers.DispatcherProvider
 import pl.marcin.malocha.flickrrecruitmenttask.domain.usecase.SearchPhotosUseCase
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.base.BaseViewModel
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.mapper.toErrorUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.mapper.toUi
 import javax.inject.Inject
 
@@ -35,13 +36,15 @@ class SearchViewModel @Inject constructor(
     private fun search(query: String) {
         searchJob?.cancel()
         searchJob = viewModelScope.launch(dispatchers.main) {
-            setState { copy(isLoading = true, isError = false) }
+            setState { copy(isLoading = true, error = null) }
             searchPhotos(query)
                 .onSuccess { photos ->
                     setState { copy(photos = photos.map { it.toUi() }, isLoading = false, hasSearched = true) }
                 }
-                .onFailure {
-                    setState { copy(photos = emptyList(), isLoading = false, isError = true, hasSearched = true) }
+                .onFailure { error ->
+                    setState {
+                        copy(photos = emptyList(), isLoading = false, error = error.toErrorUi(), hasSearched = true)
+                    }
                 }
         }
     }

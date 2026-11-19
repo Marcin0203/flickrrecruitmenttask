@@ -39,6 +39,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.SubcomposeAsyncImage
 import pl.marcin.malocha.flickrrecruitmenttask.R
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.ErrorUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.utils.ExcludeFromJacocoGeneratedReport
@@ -125,8 +126,8 @@ internal fun SearchScreenLayout(
                     state.isLoading -> CircularProgressIndicator(
                         modifier = Modifier.testTag(SearchScreenTestTags.LOADING_INDICATOR),
                     )
-                    state.isError -> SearchMessage(
-                        text = stringResource(R.string.search_error),
+                    state.error != null -> SearchMessage(
+                        text = errorMessage(state.error),
                         modifier = Modifier.testTag(SearchScreenTestTags.ERROR_MESSAGE),
                     )
                     state.hasNoResults -> SearchMessage(
@@ -204,6 +205,13 @@ private fun PhotoGridItem(
 }
 
 @Composable
+private fun errorMessage(error: ErrorUi): String = when (error) {
+    is ErrorUi.Api -> stringResource(R.string.search_error_api, error.code)
+    ErrorUi.Network -> stringResource(R.string.search_error_network)
+    ErrorUi.Unknown -> stringResource(R.string.search_error_unknown)
+}
+
+@Composable
 private fun SearchMessage(
     text: String,
     modifier: Modifier = Modifier,
@@ -246,7 +254,7 @@ private fun SearchScreenLoadingPreview() {
 private fun SearchScreenErrorPreview() {
     FlickrRecruitmentTaskTheme {
         SearchScreenLayout(
-            state = SearchUiState(query = "cat, dog", isError = true, hasSearched = true),
+            state = SearchUiState(query = "cat, dog", error = ErrorUi.Api(code = 500), hasSearched = true),
             onEvent = {},
         )
     }
