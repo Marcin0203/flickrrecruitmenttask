@@ -28,6 +28,8 @@ import org.junit.runner.RunWith
 import pl.marcin.malocha.flickrrecruitmenttask.di.providers.DefaultDispatchers
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.domain.usecase.SearchPhotosUseCase
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.mapper.toUi
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
 import pl.marcin.malocha.flickrrecruitmenttask.rules.FakeImageLoaderRule
 import pl.marcin.malocha.flickrrecruitmenttask.utils.isPresent
@@ -63,7 +65,7 @@ class SearchScreenTest {
     )
 
     private val searchPhotos: SearchPhotosUseCase = mockk()
-    private val navigatedToPhotos = mutableListOf<Photo>()
+    private val navigatedToPhotos = mutableListOf<PhotoUi>()
 
     @Before
     fun setUp() {
@@ -175,7 +177,7 @@ class SearchScreenTest {
         composeTestRule.onNodeWithText("Sleepy cat").performClick()
         composeTestRule.waitForIdle()
 
-        assertThat(navigatedToPhotos).containsExactly(photo)
+        assertThat(navigatedToPhotos).containsExactly(photo.toUi())
     }
 
     @Test

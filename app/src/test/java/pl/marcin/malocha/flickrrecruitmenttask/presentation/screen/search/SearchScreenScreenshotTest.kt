@@ -4,7 +4,7 @@ import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import org.junit.Rule
 import org.junit.Test
-import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.utils.snapshotLightAndDark
 
 /**
@@ -62,7 +62,7 @@ class SearchScreenScreenshotTest {
         )
     }
 
-    private fun photo(id: String, title: String) = Photo(
+    private fun photo(id: String, title: String) = PhotoUi(
         id = "https://www.flickr.com/photos/user/$id/",
         title = title,
         thumbnailUrl = "https://live.staticflickr.com/65535/${id}_abc_m.jpg",

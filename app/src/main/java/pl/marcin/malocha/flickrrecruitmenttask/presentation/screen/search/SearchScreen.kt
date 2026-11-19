@@ -39,7 +39,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.SubcomposeAsyncImage
 import pl.marcin.malocha.flickrrecruitmenttask.R
-import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
+import pl.marcin.malocha.flickrrecruitmenttask.presentation.model.PhotoUi
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.utils.ExcludeFromJacocoGeneratedReport
 
@@ -56,7 +56,7 @@ object SearchScreenTestTags {
 
 @Composable
 fun SearchScreen(
-    onNavigateToPhoto: (Photo) -> Unit,
+    onNavigateToPhoto: (PhotoUi) -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -145,8 +145,8 @@ internal fun SearchScreenLayout(
 
 @Composable
 private fun PhotoGrid(
-    photos: List<Photo>,
-    onPhotoClick: (Photo) -> Unit,
+    photos: List<PhotoUi>,
+    onPhotoClick: (PhotoUi) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
@@ -165,7 +165,7 @@ private fun PhotoGrid(
 
 @Composable
 private fun PhotoGridItem(
-    photo: Photo,
+    photo: PhotoUi,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -273,7 +273,7 @@ private fun SearchScreenResultsPreview() {
             state = SearchUiState(
                 query = "cat, dog",
                 photos = List(4) { index ->
-                    Photo(
+                    PhotoUi(
                         id = "photo_$index",
                         title = if (index == 1) "" else "Photo $index",
                         thumbnailUrl = "",

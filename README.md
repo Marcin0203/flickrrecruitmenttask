@@ -219,7 +219,7 @@ The `Route` suffix is kept for navigation and is not used for screens.
 | Field | Meaning |
 |-------|---------|
 | `query` | Text typed into the search field |
-| `photos` | Photos found by the last successful search |
+| `photos` | Photos found by the last successful search, as `PhotoUi` |
 | `isLoading` | A search is in progress |
 | `isError` | The last search failed (for example no network) |
 | `hasSearched` | At least one search has finished, so empty `photos` means "no results", not "not searched yet" |
@@ -237,7 +237,9 @@ Below the form the screen shows the first state that applies:
 3. `hasNoResults` (derived: the last search finished without error and found no photos): the message "No photos found for these tags."
 4. Otherwise the photo grid (empty before the first search).
 
-The grid is a `LazyVerticalGrid` with `GridCells.Adaptive(160.dp)`: two columns on a phone in portrait, more in landscape and on tablets. Each card shows the square-cropped thumbnail, loaded with Coil's `SubcomposeAsyncImage`, and the title in two lines. While the image is loading, its `loading` slot shows a progress indicator over a coloured background. If the image fails to load, the background stays. A photo without a title (`Photo.hasTitle` is `false`) shows "Untitled" from `strings.xml`.
+The ViewModel maps each domain `Photo` to a `PhotoUi` (`presentation/model`) with `Photo.toUi()` (`presentation/mapper/PhotoUiMapper.kt`). The state, the `PhotoClicked` event, the `NavigateToPhoto` action and the screen use only `PhotoUi`, so the UI does not depend on the domain model.
+
+The grid is a `LazyVerticalGrid` with `GridCells.Adaptive(160.dp)`: two columns on a phone in portrait, more in landscape and on tablets. Each card shows the square-cropped thumbnail, loaded with Coil's `SubcomposeAsyncImage`, and the title in two lines. While the image is loading, its `loading` slot shows a progress indicator over a coloured background. If the image fails to load, the background stays. A photo without a title (`PhotoUi.hasTitle` is `false`) shows "Untitled" from `strings.xml`.
 
 ### Photo detail screen
 
@@ -285,11 +287,13 @@ FlickrRecruitmentTask/
 │       │   │   │       └── datasource/      # PhotoRemoteDataSource
 │       │   │   ├── di/                      # Hilt modules (dispatchers, network, data sources, repositories), DispatcherProvider
 │       │   │   ├── domain/
-│       │   │   │   ├── model/               # Photo (domain model, with the derived hasTitle)
+│       │   │   │   ├── model/               # Photo (domain model)
 │       │   │   │   ├── repository/          # PhotoRepository (interface)
 │       │   │   │   └── usecase/             # SearchPhotosUseCase
 │       │   │   └── presentation/
 │       │   │       ├── base/                # BaseViewModel (MVI base class)
+│       │   │       ├── mapper/              # Domain model → UI model mapping (PhotoUiMapper)
+│       │   │       ├── model/               # UI models (PhotoUi, with the derived hasTitle)
 │       │   │       ├── navigation/          # FlickrNavHost, routes (SearchRoute, PhotoDetailRoute)
 │       │   │       ├── screen/              # One package per screen
 │       │   │       │   ├── photodetail/     # Full-screen photo: contract, ViewModel, screen
@@ -303,10 +307,11 @@ FlickrRecruitmentTask/
 │       │   │   ├── data/remote/             # FlickrApiTest (MockWebServer), datasource/PhotoRemoteDataSourceImplTest
 │       │   │   ├── data/repository/         # PhotoRepositoryImplTest
 │       │   │   ├── di/providers/            # Test DispatcherProvider implementations
-│       │   │   ├── domain/model/            # PhotoTest
 │       │   │   ├── domain/usecase/          # SearchPhotosUseCaseTest
 │       │   │   ├── rules/                   # MainDispatcherRule
 │       │   │   ├── utils/                   # Test helpers (collectToList, snapshotLightAndDark)
+│       │   │   ├── presentation/mapper/     # PhotoUiMapperTest
+│       │   │   ├── presentation/model/      # PhotoUiTest
 │       │   │   └── presentation/screen/     # search/: SearchViewModelTest, SearchScreenScreenshotTest; photodetail/: PhotoDetailViewModelTest, PhotoDetailScreenScreenshotTest
 │       │   ├── resources/feed/              # JSON fixtures of the Flickr feed
 │       │   └── snapshots/images/            # Paparazzi golden PNGs
@@ -382,7 +387,7 @@ Repository tests (`PhotoRepositoryImplTest`) use a MockK `PhotoRemoteDataSource`
 
 Use case tests (`SearchPhotosUseCaseTest`) use a MockK `PhotoRepository`. They check how the query is split into tags (commas, spaces, empty tags, duplicates), that a query without tags returns an empty list without calling the repository, and that the repository's success and failure are returned unchanged.
 
-Model tests (`PhotoTest`) check `hasTitle`: `true` for a title, `false` for an empty or blank one.
+UI model tests (`PhotoUiTest`) check `hasTitle`: `true` for a title, `false` for an empty or blank one. `PhotoUiMapperTest` checks that every `Photo` field ends up in the right `PhotoUi` field.
 
 Mapper tests (`PhotoMapperTest`) check that every DTO field ends up in the right `Photo` field, including an empty title, the `_m` → `_b` swap (only right before the file extension, for any extension) and a URL without the `_m` suffix, which is kept as it is.
 
@@ -507,12 +512,13 @@ Key technical decisions and their reasoning, in the order they were made.
 | 22 | A failed search shows an **error message in the screen content**, from `isError` in the state, not a Snackbar; there is no separate Retry button | The message comes from the state, so it stays after rotation and needs no one-off action. Tapping Search again retries, so a Retry button would add nothing the task needs. |
 | 23 | **Coil 3** (`coil-compose` + `coil-network-okhttp`) for loading images, version 3.3.0 | The standard image loader for Compose, written in Kotlin with coroutines, with memory and disk caching built in. The OkHttp network module reuses a library the app already has, and it registers itself, so no `ImageLoader` setup or Hilt module is needed. 3.3.0 is the newest version built for Kotlin 2.2 (3.4+ is built with Kotlin 2.3/2.4). |
 | 24 | The results grid uses **`GridCells.Adaptive(160.dp)`** | The number of columns follows the screen width (two on a phone in portrait, more in landscape and on tablets) without any extra code. |
-| 25 | **`Photo.hasTitle`** is a derived flag in the domain; the "Untitled" fallback text comes from `strings.xml` in the UI | The UI only reads a flag and has no condition on the data. The fallback text is a string resource, so it can be translated, which a constant in the mapper could not. |
+| 25 | ~~**`Photo.hasTitle`** is a derived flag in the domain~~ (replaced by #31); the "Untitled" fallback text comes from `strings.xml` in the UI | The UI only reads a flag and has no condition on the data. The fallback text is a string resource, so it can be translated, which a constant in the mapper could not. |
 | 26 | Screens live in **`presentation/screen/<name>`** (for example `screen/search`), one package per screen with its contract, ViewModel and composables | Screens are kept apart from the shared presentation code (`base`, `theme`, `utils`), so each screen is easy to find and a new one has an obvious place. Package names are lowercase, as is usual in Kotlin. |
 | 27 | `PhotoDetailViewModel` gets its `PhotoDetailRoute` through **Hilt assisted injection**, not by reading `SavedStateHandle` | The ViewModel gets a typed route and tests create it with a plain constructor call, without `SavedStateHandle` or Robolectric. After process death, Navigation restores the route and passes it again. The screen still follows MVI (state, events, actions), so all screens work the same way. |
 | 28 | **Navigation Compose 2.10** with type-safe `@Serializable` routes, not Navigation 3 | A mature API most teams know. kotlinx.serialization is already in the project, and 2.10.2 is built for Kotlin 2.1, so it works with Kotlin 2.2. Navigation 3 (a back stack as a plain list) is newer but less known, and with two screens it brings no advantage. |
 | 29 | Photos are loaded with **`SubcomposeAsyncImage`** and its `loading` slot shows a `CircularProgressIndicator` | `AsyncImage` only takes a `Painter` as a placeholder, so an animated indicator would need a custom overlay and state tracking. The `loading` slot takes any composable, so it is the simplest way. Subcomposition is slower than `AsyncImage`, but with at most 20 fixed-size cards it makes no visible difference. |
 | 30 | UI tests replace Coil's singleton `ImageLoader` with **`coil-test`'s `FakeImageLoaderEngine`** in a JUnit rule | Tests do not depend on the network, and each test decides when images finish loading, so both the loading and the loaded state can be checked. A rule sets the loader up and resets it for every test in one line, like `MainDispatcherRule` in unit tests. |
+| 31 | The UI uses its own **`PhotoUi`** model, mapped from the domain `Photo` with `Photo.toUi()` in `presentation/mapper`; `hasTitle` moved from `Photo` to `PhotoUi` | The UI does not depend on the domain model, so either can change without touching the other, the same way `data/mapper` keeps DTOs out of the domain. `hasTitle` only decides whether the UI shows a fallback text, so it belongs to the UI model, like `PhotoDetailUiState.hasTitle`. |
 
 ---
 
@@ -544,6 +550,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Search in the ViewModel: the search state in `SearchUiState`, calling the use case from `SearchViewModel`, cancelling an older search, and the updated `SearchViewModelTest` and `SearchScreenTest`
 - Search states on the screen: the loading indicator, the error and "no results" messages, their UI tests and screenshot tests
 - Results grid: the Coil setup, the photo grid with titles and the "Untitled" fallback, `Photo.hasTitle`, `PhotoTest` and the new UI and screenshot tests
+- UI model: `PhotoUi` with `hasTitle`, the `Photo.toUi()` mapper, switching the search screen to `PhotoUi`, `PhotoUiTest` and `PhotoUiMapperTest`
 - Package layout: moving the search screen to `presentation/screen/search`
 - Photo detail screen: `PhotoDetailRoute`, the contract, `PhotoDetailViewModel` with assisted injection, the screen, `PhotoDetailViewModelTest`, `PhotoDetailScreenTest` and `PhotoDetailScreenScreenshotTest`
 - Navigation: Navigation Compose setup, `FlickrNavHost` with `SearchRoute` and `PhotoDetailRoute`, opening a photo from the grid and the new ViewModel and UI tests
