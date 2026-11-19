@@ -237,14 +237,14 @@ Below the form the screen shows the first state that applies:
 3. `hasNoResults` (derived: the last search finished without error and found no photos): the message "No photos found for these tags."
 4. Otherwise the photo grid (empty before the first search).
 
-The grid is a `LazyVerticalGrid` with `GridCells.Adaptive(160.dp)`: two columns on a phone in portrait, more in landscape and on tablets. Each card shows the square-cropped thumbnail, loaded with Coil's `AsyncImage`, and the title in two lines. A coloured background is visible until the image is loaded. A photo without a title (`Photo.hasTitle` is `false`) shows "Untitled" from `strings.xml`.
+The grid is a `LazyVerticalGrid` with `GridCells.Adaptive(160.dp)`: two columns on a phone in portrait, more in landscape and on tablets. Each card shows the square-cropped thumbnail, loaded with Coil's `SubcomposeAsyncImage`, and the title in two lines. While the image is loading, its `loading` slot shows a progress indicator over a coloured background. If the image fails to load, the background stays. A photo without a title (`Photo.hasTitle` is `false`) shows "Untitled" from `strings.xml`.
 
 ### Photo detail screen
 
 `PhotoDetailScreen` (`presentation/screen/photodetail`) shows one photo in full screen. Its arguments are a `PhotoDetailRoute(imageUrl, title)` (`presentation/navigation/Routes.kt`), a `@Serializable` class for type-safe navigation:
 
 - `PhotoDetailViewModel` gets the route through **Hilt assisted injection** (`@AssistedInject` with an `@AssistedFactory`), so it is created with a plain constructor call in tests. Its `PhotoDetailUiState` holds `imageUrl` and `title`, with a derived `hasTitle`.
-- The layout is a `Scaffold` with a `TopAppBar`: a back arrow and the title in one line ("Untitled" if `hasTitle` is `false`). Below it, Coil's `AsyncImage` shows the large (`_b`, 1024 px) image with `ContentScale.Fit`, so the whole photo is visible without cropping.
+- The layout is a `Scaffold` with a `TopAppBar`: a back arrow and the title in one line ("Untitled" if `hasTitle` is `false`). Below it, Coil's `SubcomposeAsyncImage` shows the large (`_b`, 1024 px) image with `ContentScale.Fit`, so the whole photo is visible without cropping. Its `loading` slot shows a progress indicator in the middle until the image is loaded.
 - The back arrow sends `PhotoDetailEvent.BackClicked`. The ViewModel answers with `PhotoDetailAction.NavigateBack`, and the screen calls its `onNavigateBack` callback.
 - The arrow is a vector drawable (`res/drawable/ic_arrow_back.xml`, Material Symbols `arrow_back`, mirrored for right-to-left languages). The Material icons library is no longer part of Material 3, and one icon does not need a dependency.
 
@@ -395,7 +395,7 @@ UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**
 
 Screenshot tests (**Paparazzi**) cover how screens look. They render the stateless `XxxScreenLayout` on the JVM with layoutlib, so they need no device or emulator:
 
-- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query, loading, error, no results, results). `PhotoDetailScreenScreenshotTest` covers a title, no title and a long, cut title. Images are not loaded in Paparazzi, so the snapshots show the placeholder background or an empty image area and stay deterministic. All tests use a `PIXEL_5` device config.
+- `SearchScreenScreenshotTest` has one test per important UI state (empty query with a disabled button, filled query, loading, error, no results, results). `PhotoDetailScreenScreenshotTest` covers a title, no title and a long, cut title. `snapshotLightAndDark` provides a Coil `AsyncImagePreviewHandler` that keeps every image in the `Loading` state. Coil's default preview handler would really run the request, so without it the snapshots would depend on the network. The photo detail snapshots show the progress indicator. In the results grid the indeterminate indicator is drawn with a zero-length arc in Paparazzi's first frame, so the cards show only the placeholder background. All tests use a `PIXEL_5` device config.
 - Each test calls the generic `Paparazzi.snapshotLightAndDark { ... }` helper (`utils/PaparazziTestUtils.kt`). It takes two named snapshots (`light`, `dark`) of any composable in the app theme with `dynamicColor = false`, so tests only describe what to render and the result does not depend on the wallpaper or API level.
 - Golden images live in `app/src/test/snapshots/images/` and are committed. After an intended UI change, record them again and review the PNG diff.
 
@@ -508,6 +508,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 26 | Screens live in **`presentation/screen/<name>`** (for example `screen/search`), one package per screen with its contract, ViewModel and composables | Screens are kept apart from the shared presentation code (`base`, `theme`, `utils`), so each screen is easy to find and a new one has an obvious place. Package names are lowercase, as is usual in Kotlin. |
 | 27 | `PhotoDetailViewModel` gets its `PhotoDetailRoute` through **Hilt assisted injection**, not by reading `SavedStateHandle` | The ViewModel gets a typed route and tests create it with a plain constructor call, without `SavedStateHandle` or Robolectric. After process death, Navigation restores the route and passes it again. The screen still follows MVI (state, events, actions), so all screens work the same way. |
 | 28 | **Navigation Compose 2.10** with type-safe `@Serializable` routes, not Navigation 3 | A mature API most teams know. kotlinx.serialization is already in the project, and 2.10.2 is built for Kotlin 2.1, so it works with Kotlin 2.2. Navigation 3 (a back stack as a plain list) is newer but less known, and with two screens it brings no advantage. |
+| 29 | Photos are loaded with **`SubcomposeAsyncImage`** and its `loading` slot shows a `CircularProgressIndicator` | `AsyncImage` only takes a `Painter` as a placeholder, so an animated indicator would need a custom overlay and state tracking. The `loading` slot takes any composable, so it is the simplest way. Subcomposition is slower than `AsyncImage`, but with at most 20 fixed-size cards it makes no visible difference. |
 
 ---
 
@@ -542,6 +543,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Package layout: moving the search screen to `presentation/screen/search`
 - Photo detail screen: `PhotoDetailRoute`, the contract, `PhotoDetailViewModel` with assisted injection, the screen, `PhotoDetailViewModelTest`, `PhotoDetailScreenTest` and `PhotoDetailScreenScreenshotTest`
 - Navigation: Navigation Compose setup, `FlickrNavHost` with `SearchRoute` and `PhotoDetailRoute`, opening a photo from the grid and the new ViewModel and UI tests
+- Photo loading indicator: `SubcomposeAsyncImage` with a `loading` slot in the grid and the photo detail screen, and deterministic Coil images in Paparazzi snapshots
 
 ### How it is used
 

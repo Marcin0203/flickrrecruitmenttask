@@ -37,7 +37,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import pl.marcin.malocha.flickrrecruitmenttask.R
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
@@ -51,6 +51,7 @@ object SearchScreenTestTags {
     const val NO_RESULTS_MESSAGE = "search_no_results_message"
     const val RESULTS_GRID = "search_results_grid"
     const val PHOTO_ITEM = "search_photo_item"
+    const val PHOTO_LOADING_INDICATOR = "search_photo_loading_indicator"
 }
 
 @Composable
@@ -173,15 +174,22 @@ private fun PhotoGridItem(
         onClick = onClick,
         modifier = modifier.testTag(SearchScreenTestTags.PHOTO_ITEM),
     ) {
-        AsyncImage(
+        SubcomposeAsyncImage(
             model = photo.thumbnailUrl,
             contentDescription = title,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                // Visible until the image is loaded.
+                // Visible behind the loading indicator, and stays if the image fails to load.
                 .background(MaterialTheme.colorScheme.secondaryContainer),
             contentScale = ContentScale.Crop,
+            loading = {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.testTag(SearchScreenTestTags.PHOTO_LOADING_INDICATOR),
+                    )
+                }
+            },
         )
         Text(
             text = title,
