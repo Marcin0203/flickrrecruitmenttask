@@ -29,6 +29,8 @@ import pl.marcin.malocha.flickrrecruitmenttask.di.providers.DefaultDispatchers
 import pl.marcin.malocha.flickrrecruitmenttask.domain.model.Photo
 import pl.marcin.malocha.flickrrecruitmenttask.domain.usecase.SearchPhotosUseCase
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
+import pl.marcin.malocha.flickrrecruitmenttask.rules.FakeImageLoaderRule
+import pl.marcin.malocha.flickrrecruitmenttask.utils.isPresent
 import java.io.IOException
 
 /**
@@ -41,6 +43,9 @@ class SearchScreenTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    @get:Rule
+    val fakeImageLoaderRule = FakeImageLoaderRule()
+
     private val queryField get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.QUERY_FIELD)
     private val searchButton get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.SEARCH_BUTTON)
     private val loadingIndicator get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.LOADING_INDICATOR)
@@ -48,6 +53,7 @@ class SearchScreenTest {
     private val noResultsMessage get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.NO_RESULTS_MESSAGE)
     private val resultsGrid get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.RESULTS_GRID)
     private val photoItems get() = composeTestRule.onAllNodesWithTag(SearchScreenTestTags.PHOTO_ITEM)
+    private val photoLoadingIndicator get() = composeTestRule.onNodeWithTag(SearchScreenTestTags.PHOTO_LOADING_INDICATOR)
 
     private fun photo(id: String, title: String) = Photo(
         id = "https://www.flickr.com/photos/user/$id/",
@@ -133,6 +139,30 @@ class SearchScreenTest {
         resultsGrid.performScrollToNode(hasText("Happy dog"))
         composeTestRule.onNodeWithText("Happy dog").assertIsDisplayed()
         noResultsMessage.assertDoesNotExist()
+    }
+
+    @Test
+    fun stateTest_PhotoLoading_ShowsLoadingIndicator() {
+        coEvery { searchPhotos(any()) } returns Result.success(listOf(photo(id = "1", title = "Sleepy cat")))
+
+        queryField.performTextInput("cat")
+        searchButton.performClick()
+
+        composeTestRule.waitUntil { photoLoadingIndicator.isPresent() }
+        photoLoadingIndicator.assertIsDisplayed()
+    }
+
+    @Test
+    fun stateTest_PhotoLoaded_HidesLoadingIndicator() {
+        coEvery { searchPhotos(any()) } returns Result.success(listOf(photo(id = "1", title = "Sleepy cat")))
+        queryField.performTextInput("cat")
+        searchButton.performClick()
+        composeTestRule.waitUntil { photoLoadingIndicator.isPresent() }
+
+        fakeImageLoaderRule.finishLoading()
+
+        composeTestRule.waitUntil { !photoLoadingIndicator.isPresent() }
+        photoLoadingIndicator.assertDoesNotExist()
     }
 
     @Test

@@ -1,7 +1,9 @@
 package pl.marcin.malocha.flickrrecruitmenttask.presentation.screen.photodetail
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -11,6 +13,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -19,7 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import pl.marcin.malocha.flickrrecruitmenttask.R
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.theme.FlickrRecruitmentTaskTheme
 import pl.marcin.malocha.flickrrecruitmenttask.presentation.utils.ExcludeFromJacocoGeneratedReport
@@ -28,6 +31,7 @@ object PhotoDetailScreenTestTags {
     const val BACK_BUTTON = "photo_detail_back_button"
     const val TITLE = "photo_detail_title"
     const val IMAGE = "photo_detail_image"
+    const val LOADING_INDICATOR = "photo_detail_loading_indicator"
 }
 
 @Composable
@@ -85,7 +89,7 @@ internal fun PhotoDetailScreenLayout(
             )
         },
     ) { innerPadding ->
-        AsyncImage(
+        SubcomposeAsyncImage(
             model = state.imageUrl,
             contentDescription = title,
             modifier = Modifier
@@ -94,6 +98,13 @@ internal fun PhotoDetailScreenLayout(
                 .testTag(PhotoDetailScreenTestTags.IMAGE),
             // The whole photo is shown, without cropping.
             contentScale = ContentScale.Fit,
+            loading = {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.testTag(PhotoDetailScreenTestTags.LOADING_INDICATOR),
+                    )
+                }
+            },
         )
     }
 }
