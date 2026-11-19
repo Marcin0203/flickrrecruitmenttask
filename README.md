@@ -116,7 +116,7 @@ https://api.flickr.com/services/feeds/photos_public.gne?format=json&nojsoncallba
 | Build | Gradle 9.4.1 (Kotlin DSL), Android Gradle Plugin 9.2.1, version catalog (`gradle/libs.versions.toml`) |
 | JDK | Toolchain 21 (Gradle daemon), Java 11 bytecode target |
 | SDK | `compileSdk` 37, `targetSdk` 36, `minSdk` 24 |
-| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11 (`mockk` for unit tests, `mockk-android` for UI tests), Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
+| Testing | JUnit 4, kotlinx-coroutines-test 1.10.2, MockK 1.14.11 (`mockk` for unit tests, `mockk-android` for UI tests), Coil `coil-test` 3.3.0 (fake images in UI tests), Google Truth 1.4.4, AndroidX Test, Espresso, Compose UI Test, Paparazzi 2.0.0-alpha05.1 (screenshot tests), OkHttp MockWebServer 5.5.1 (API tests) |
 | Code coverage | JaCoCo 0.8.14 |
 
 ---
@@ -312,7 +312,9 @@ FlickrRecruitmentTask/
 │       │   └── snapshots/images/            # Paparazzi golden PNGs
 │       └── androidTest/                     # Instrumented tests (device/emulator)
 │           └── java/.../flickrrecruitmenttask/
-│               └── presentation/screen/     # SearchScreenTest, PhotoDetailScreenTest (whole screen with a real ViewModel)
+│               ├── presentation/screen/     # SearchScreenTest, PhotoDetailScreenTest (whole screen with a real ViewModel)
+│               ├── rules/                   # FakeImageLoaderRule (fake Coil ImageLoader)
+│               └── utils/                   # Test helpers (isPresent)
 ├── gradle/
 │   ├── libs.versions.toml                   # Dependency version catalog
 │   └── wrapper/                             # Gradle wrapper
@@ -391,6 +393,7 @@ UI tests (`androidTest`, Compose UI Test) check **the whole screen's behaviour**
 - `SearchScreenTest` also checks the search states: nothing is shown at first, a search that never finishes (a `CompletableDeferred` the mocked use case awaits) shows the progress indicator, a failed search shows the error message, and a search without photos shows the "no results" message.
 - It also checks the results: after a search with two photos the grid shows exactly two items with their titles, and a photo without a title shows "Untitled". The image URLs are fake, so the tests do not depend on images being loaded. Tapping a photo calls `onNavigateToPhoto` with that photo.
 - `PhotoDetailScreenTest` creates `PhotoDetailViewModel` with a route and checks the title, the "Untitled" fallback, that the image is shown and that the back arrow calls `onNavigateBack`.
+- Both tests use **`FakeImageLoaderRule`** (`androidTest/.../rules`). For each test it sets Coil's singleton `ImageLoader` to one with a `FakeImageLoaderEngine` from `coil-test`, so images are never loaded from the network. Every image stays loading until the test calls `finishLoading()`, then it loads as a `FakeImage`. The tests check that the loading indicator is shown while a photo is loading (in the grid and in the photo detail screen) and is hidden after it loads. Coil loads images outside Compose's idling, so the tests wait with `waitUntil` and the `isPresent()` helper (`androidTest/.../utils`).
 - Visual appearance is covered by screenshot tests (below).
 
 Screenshot tests (**Paparazzi**) cover how screens look. They render the stateless `XxxScreenLayout` on the JVM with layoutlib, so they need no device or emulator:
@@ -509,6 +512,7 @@ Key technical decisions and their reasoning, in the order they were made.
 | 27 | `PhotoDetailViewModel` gets its `PhotoDetailRoute` through **Hilt assisted injection**, not by reading `SavedStateHandle` | The ViewModel gets a typed route and tests create it with a plain constructor call, without `SavedStateHandle` or Robolectric. After process death, Navigation restores the route and passes it again. The screen still follows MVI (state, events, actions), so all screens work the same way. |
 | 28 | **Navigation Compose 2.10** with type-safe `@Serializable` routes, not Navigation 3 | A mature API most teams know. kotlinx.serialization is already in the project, and 2.10.2 is built for Kotlin 2.1, so it works with Kotlin 2.2. Navigation 3 (a back stack as a plain list) is newer but less known, and with two screens it brings no advantage. |
 | 29 | Photos are loaded with **`SubcomposeAsyncImage`** and its `loading` slot shows a `CircularProgressIndicator` | `AsyncImage` only takes a `Painter` as a placeholder, so an animated indicator would need a custom overlay and state tracking. The `loading` slot takes any composable, so it is the simplest way. Subcomposition is slower than `AsyncImage`, but with at most 20 fixed-size cards it makes no visible difference. |
+| 30 | UI tests replace Coil's singleton `ImageLoader` with **`coil-test`'s `FakeImageLoaderEngine`** in a JUnit rule | Tests do not depend on the network, and each test decides when images finish loading, so both the loading and the loaded state can be checked. A rule sets the loader up and resets it for every test in one line, like `MainDispatcherRule` in unit tests. |
 
 ---
 
@@ -543,7 +547,7 @@ This project is developed with the help of an AI coding assistant. The task expl
 - Package layout: moving the search screen to `presentation/screen/search`
 - Photo detail screen: `PhotoDetailRoute`, the contract, `PhotoDetailViewModel` with assisted injection, the screen, `PhotoDetailViewModelTest`, `PhotoDetailScreenTest` and `PhotoDetailScreenScreenshotTest`
 - Navigation: Navigation Compose setup, `FlickrNavHost` with `SearchRoute` and `PhotoDetailRoute`, opening a photo from the grid and the new ViewModel and UI tests
-- Photo loading indicator: `SubcomposeAsyncImage` with a `loading` slot in the grid and the photo detail screen, and deterministic Coil images in Paparazzi snapshots
+- Photo loading indicator: `SubcomposeAsyncImage` with a `loading` slot in the grid and the photo detail screen, deterministic Coil images in Paparazzi snapshots, `FakeImageLoaderRule` with `coil-test` and the loading indicator UI tests
 
 ### How it is used
 
